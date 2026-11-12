@@ -4,12 +4,15 @@ import csv
 from datetime import datetime
 from pathlib import Path
 import tempfile
+from threading import Condition
+from time import monotonic
 
 from retail_dw.prepare_data import (
     GENERATED_COLUMNS, generated_data_lock, numeric_value, publish_generated_files,
 )
 from retail_dw.rules import sales_assignment
 from retail_dw.settings import RuntimeSettings
+from retail_dw.execution import WorkerThread
 
 
 PERIODIC_COLUMNS = (
@@ -19,6 +22,107 @@ PERIODIC_COLUMNS = (
 )
 PERIODIC_FILENAME = "periodic_sales_data.csv"
 GROUP_COUNT = RuntimeSettings().periodic_groups
+
+
+class PeriodicThread(WorkerThread):
+    def __init__(self, config, buffer, control, hours=48, commit_releases=False, warehouse=False):
+        super().__init__("PeriodicThread", control)
+        if not 1 <= hours <= GROUP_COUNT:
+            raise ValueError("Periodic hours must be between 1 and 48.")
+        self.config = config
+        self.buffer = buffer
+        self.hours = hours
+        self.commit_releases = commit_releases
+        self.warehouse = warehouse
+        self.completion = Condition()
+        self.pending_ids = set()
+
+    def acknowledge(self, source_ids):
+        with self.completion:
+            self.pending_ids.difference_update(source_ids)
+            self.completion.notify_all()
+
+    def work(self):
+        from retail_dw.database import database_connection
+        from retail_dw.meshjoin import SalesTransaction
+
+        with database_connection(self.config) as connection:
+            cursor = connection.cursor(dictionary=True)
+            try:
+                next_release = monotonic()
+                for hour in range(self.hours):
+                    if self.control.stop.wait(max(0, next_release - monotonic())):
+                        break
+                    if not self.control.wait_for_channel("periodic"):
+                        break
+                    if self.warehouse:
+                        connection.start_transaction(isolation_level="READ COMMITTED")
+                    else:
+                        connection.start_transaction()
+                    try:
+                        cursor.execute(
+                            f"SELECT {', '.join(PERIODIC_COLUMNS)} FROM periodic_sales_data "
+                            "WHERE release_hour = %s AND released = 0 "
+                            "ORDER BY event_time, source_line_id FOR UPDATE", (hour,),
+                        )
+                        rows = cursor.fetchall()
+                        extracted_at = monotonic()
+                        stored = {}
+                        if self.control.shedding_enabled and rows:
+                            from retail_dw.shedding import SHED_COLUMNS
+
+                            ids = tuple(row["source_line_id"] for row in rows)
+                            cursor.execute(
+                                f"SELECT {', '.join(SHED_COLUMNS)} FROM shed_table "
+                                f"WHERE source_line_id IN ({', '.join(['%s'] * len(ids))})", ids,
+                            )
+                            stored = {row["source_line_id"]: SalesTransaction.from_row(row) for row in cursor.fetchall()}
+                            for row in rows:
+                                previous = stored.get(row["source_line_id"])
+                                if previous is not None and previous != SalesTransaction.from_row(row):
+                                    raise ValueError("Stored shed transaction conflicts with its periodic staging row.")
+                        with self.completion:
+                            self.pending_ids = {row["source_line_id"] for row in rows}
+                        self.control.add_stats(periodic_submitted=len(stored))
+                        self.control.set_stats(current_periodic_hour=hour)
+                        for row in rows:
+                            if row["source_line_id"] in stored:
+                                continue
+                            if not self.control.submit(self.buffer, SalesTransaction.from_row(row)):
+                                return
+                            self.control.add_stats(periodic_submitted=1)
+                        with self.completion:
+                            while self.pending_ids and not self.control.stop.is_set():
+                                self.completion.wait(0.1)
+                            if self.control.stop.is_set():
+                                return
+                        # Complete a release only after every accepted row has
+                        # been acknowledged by the downstream chunk callback.
+                        if self.commit_releases:
+                            inserted = 0
+                            if self.warehouse:
+                                from retail_dw.warehouse import flush_periodic_group
+
+                                inserted = flush_periodic_group(connection, hour, [row["source_line_id"] for row in rows])
+                            cursor.execute(
+                                "UPDATE periodic_sales_data SET released = 1 "
+                                "WHERE release_hour = %s AND released = 0", (hour,),
+                            )
+                            connection.commit()
+                            self.control.add_stats(periodic_inserted=inserted)
+                        else:
+                            # Thread verification has an in-memory output sink.
+                            # Roll back its flags so the source remains runnable.
+                            connection.rollback()
+                        self.control.add_stats(groups_released=1)
+                        self.control.set_stats(last_release_hour=hour)
+                    finally:
+                        # Includes early return, cancellation, and failed output.
+                        if connection.in_transaction:
+                            connection.rollback()
+                    next_release = max(extracted_at + self.control.settings.seconds_per_hour, monotonic())
+            finally:
+                cursor.close()
 
 
 def prepare_periodic_data(data_dir):

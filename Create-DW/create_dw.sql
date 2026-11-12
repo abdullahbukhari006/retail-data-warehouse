@@ -9,7 +9,8 @@ USE retail_data_warehouse;
 -- Select/create the project database before running this file, for example
 -- mysql -h HOST -P PORT -u USER -p DATABASE < Create-DW/create_dw.sql
 -- This script deletes existing project data in the selected database.
--- It deliberately uses no fixed database name or embedded credentials.
+-- The bootstrap above selects retail_data_warehouse. Adjust it for another name.
+-- Database credentials are supplied by the Python application at execution time.
 -- DDL commits implicitly in MySQL; rerun the complete script after a failure.
 
 SET NAMES utf8mb4;
@@ -17,6 +18,7 @@ SET NAMES utf8mb4;
 -- Remove dependants before referenced tables, keeping FK enforcement enabled.
 DROP VIEW IF EXISTS STORE_QUARTERLY_SALES;
 DROP TABLE IF EXISTS online_sales_cache;
+DROP TABLE IF EXISTS periodic_join_results;
 DROP TABLE IF EXISTS fact_sales;
 DROP TABLE IF EXISTS shed_table;
 DROP TABLE IF EXISTS periodic_sales_data;
@@ -144,7 +146,7 @@ CREATE TABLE dim_time (
 -- source_line_id is assigned from the original workbook row during preparation.
 -- Keep it through CSV ingestion/replay via deterministic preparation metadata.
 -- Never identify a line by invoice/product alone, or deduplicate equal rows.
--- processing_mode is opaque text until runtime semantics are documented.
+-- processing_mode preserves the original ingestion path (Live or Periodic).
 CREATE TABLE fact_sales (
     sales_key BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     source_line_id BIGINT UNSIGNED NOT NULL,
@@ -218,6 +220,34 @@ CREATE TABLE shed_table (
     CONSTRAINT chk_shed_price CHECK (unit_price > 0),
     CONSTRAINT chk_shed_mode CHECK (sales_mode = 'Periodic'),
     CONSTRAINT chk_shed_processing_mode CHECK (CHAR_LENGTH(TRIM(processing_mode)) > 0)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+
+-- Select the project database before running this additive migration.
+CREATE TABLE IF NOT EXISTS periodic_join_results (
+    source_line_id BIGINT UNSIGNED NOT NULL,
+    transaction_id VARCHAR(32) NOT NULL,
+    customer_key BIGINT UNSIGNED NOT NULL,
+    product_key BIGINT UNSIGNED NOT NULL,
+    supplier_key BIGINT UNSIGNED NOT NULL,
+    store_key BIGINT UNSIGNED NOT NULL,
+    time_key BIGINT UNSIGNED NOT NULL,
+    quantity INT NOT NULL,
+    revenue DECIMAL(24, 6) NOT NULL,
+    sales_mode ENUM('Online', 'Periodic') NOT NULL,
+    processing_mode VARCHAR(32) NOT NULL,
+    release_hour TINYINT UNSIGNED NOT NULL,
+    PRIMARY KEY (source_line_id),
+    KEY ix_join_results_hour (release_hour, source_line_id),
+    CONSTRAINT fk_join_results_customer FOREIGN KEY (customer_key) REFERENCES dim_customer (customer_key),
+    CONSTRAINT fk_join_results_product FOREIGN KEY (product_key) REFERENCES dim_product (product_key),
+    CONSTRAINT fk_join_results_supplier FOREIGN KEY (supplier_key) REFERENCES dim_supplier (supplier_key),
+    CONSTRAINT fk_join_results_store FOREIGN KEY (store_key) REFERENCES dim_store (store_key),
+    CONSTRAINT fk_join_results_time FOREIGN KEY (time_key) REFERENCES dim_time (time_key),
+    CONSTRAINT chk_join_results_quantity CHECK (quantity > 0),
+    CONSTRAINT chk_join_results_revenue CHECK (revenue > 0),
+    CONSTRAINT chk_join_results_mode CHECK (sales_mode = 'Periodic'),
+    CONSTRAINT chk_join_results_hour CHECK (release_hour BETWEEN 0 AND 47),
+    CONSTRAINT chk_join_results_processing CHECK (CHAR_LENGTH(TRIM(processing_mode)) > 0)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
 -- Populate dimensions from completed enrichment in the loader. Store_list is

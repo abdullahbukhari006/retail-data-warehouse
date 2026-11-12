@@ -6,11 +6,13 @@ import csv
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
-from queue import Empty, Queue
+from queue import Empty
 from types import MappingProxyType
 from typing import Mapping
 
 from retail_dw.database import database_connection
+from retail_dw.buffer import PriorityStreamBuffer
+from retail_dw.execution import WorkerThread
 from retail_dw.prepare_data import CUSTOMER_COLUMNS, GENERATED_COLUMNS, PRODUCT_COLUMNS
 from retail_dw.settings import RuntimeSettings
 
@@ -165,11 +167,14 @@ class MeshJoin:
     delivery before reading pages or admitting more transactions.
     """
 
-    def __init__(self, customer_reader, product_reader, on_chunk, settings=None):
+    def __init__(self, customer_reader, product_reader, on_chunk, settings=None, stream_buffer=None, before_admission=None):
         self.settings = settings or RuntimeSettings()
         self.readers = {"customer": customer_reader, "product": product_reader}
         self.on_chunk = on_chunk
-        self.stream_buffer = Queue(maxsize=self.settings.stream_buffer_limit)
+        self.before_admission = before_admission
+        self.stream_buffer = stream_buffer if stream_buffer is not None else PriorityStreamBuffer(maxsize=self.settings.stream_buffer_limit)
+        if self.stream_buffer.maxsize != self.settings.stream_buffer_limit:
+            raise ValueError("The shared Stream buffer must have the configured capacity.")
         # Join key -> {source-line ID: actual pending transaction}. Both
         # customer and product buckets reference the same transaction object.
         self.H = {}
@@ -264,6 +269,8 @@ class MeshJoin:
             # continue filling the bounded Stream buffer while these reads run.
             for kind, reader in self.readers.items():
                 self.disk_buffers[kind] = reader.read_next_page()
+            if self.before_admission is not None:
+                self.before_admission()
             self._admit_chunk()
             for kind in self.readers:
                 self._probe_page(kind)
@@ -275,6 +282,77 @@ class MeshJoin:
             self.failed = True
             raise
         return completed + self._retire_ready_chunks()
+
+
+class MeshJoinThread(WorkerThread):
+    def __init__(self, config, buffer, on_chunk, control, on_ack=None, shedding=False, hours=48, warehouse=False):
+        super().__init__("MeshJoinThread", control)
+        self.config = config
+        self.buffer = buffer
+        self.on_chunk = on_chunk
+        self.join_operator = None
+        self.on_ack = on_ack
+        self.shedding = shedding
+        self.hours = hours
+        self.warehouse = warehouse
+
+    def work(self):
+        settings = self.control.settings
+        with database_connection(self.config) as connection, ExitStack() as stack:
+            loader = None
+            if self.warehouse:
+                from retail_dw.warehouse import WarehouseLoader
+
+                writer_connection = stack.enter_context(database_connection(self.config))
+                loader = WarehouseLoader(writer_connection)
+                loader.ensure_schema()
+            store = None
+            if self.shedding:
+                from retail_dw.shedding import ShedStore
+
+                shed_connection = stack.enter_context(database_connection(self.config))
+                store = ShedStore(shed_connection, self.control, self.hours)
+
+            def deliver(output):
+                if loader is not None:
+                    self.control.add_stats(**loader.load_chunk(output))
+                self.on_chunk(output)
+                ids = [row.transaction.source_line_id for row in output if row.transaction.sales_mode == "Periodic"]
+                if store is not None:
+                    self.control.add_stats(shed_completed=store.acknowledge(ids))
+                if self.on_ack is not None:
+                    self.on_ack(ids)
+
+            def relieve_pressure():
+                if store is not None and self.control.speed() == "peak" and self.join_operator.active_count:
+                    self.control.add_stats(shed_written=self.buffer.shed_periodic(store))
+
+            customer = stack.enter_context(closing(MasterPageReader(connection, "customer_master_data", settings.master_page_size)))
+            product = stack.enter_context(closing(MasterPageReader(connection, "product_master_data", settings.master_page_size)))
+            self.join_operator = MeshJoin(customer, product, deliver, settings, self.buffer, relieve_pressure)
+            self.control.set_stats(customer_partitions=customer.partition_count,
+                                   product_partitions=product.partition_count)
+            self.control.ready.set()
+            while not self.control.abort.is_set():
+                eligible = 0
+                if store is not None:
+                    if self.control.speed() == "non-peak":
+                        self.control.add_stats(shed_replayed=store.replay(self.buffer))
+                    total, eligible = store.counts()
+                    self.control.set_stats(shed_pending=total, shed_eligible_pending=eligible)
+                if self.join_operator.has_work:
+                    self.join_operator.step()
+                    self.control.set_stats(
+                        iterations=self.join_operator.iterations,
+                        hash_transactions=self.join_operator.active_count,
+                        queue_chunks=len(self.join_operator.queue),
+                        customer_pages_read=customer.pages_read,
+                        product_pages_read=product.pages_read,
+                    )
+                elif self.control.producers_done.is_set() and not eligible:
+                    break
+                else:
+                    self.control.abort.wait(0.02)
 
 
 def check_meshjoin(config, data_dir, limit=1000, settings=None):

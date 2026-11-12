@@ -116,3 +116,30 @@ Step 7 sorts all 119,144 periodic lines by event time and then by original sourc
 The prepared file is `Data/periodic_sales_data.csv`. Every source line and its eight staging transaction fields were independently matched to the sorted assigned input, with no duplicates or extra rows. Source IDs remain original workbook row numbers. Sales mode is `Periodic`. Processing mode is also `Periodic`, identifying the original ingestion path, and will be preserved during runtime shedding/recovery.
 
 The user successfully ran the authenticated `load-periodic` command. Before committing, the loader queried the staging table and verified all group counts against the file and confirmed all rows were unreleased. It reported 119,144 rows across 48 groups with the expected minimum and maximum sizes. The hourly release thread is a later implementation stage.
+
+## Peak shedding and non-peak recovery verification
+
+Step 10's authenticated MySQL stress check used 10,000 online rows, the first periodic group of 2,483 rows, peak arrival mode with a configured rate override of 1,000,000 transactions/second, the default non-peak rate of 10, and the default 60-second hour. Group 0 started immediately. The finite verification switched to non-peak after the selected online input completed to recover the eligible backlog.
+
+| Measure | Observed result |
+| --- | --- |
+| Online submitted/enriched | 10,000 / 10,000 |
+| Periodic submitted/enriched | 2,483 / 2,483 |
+| Periodic rows shed during peak | 1,785 |
+| Rows replayed during non-peak | 1,785 |
+| Shed rows acknowledged and removed | 1,785 |
+| Final shed-table rows | 0 |
+| Final buffer/H/queue | 0 / 0 / 0 |
+| Elapsed time | 1.249 seconds |
+
+Shed rows were persisted before buffer ownership was released. Replay retained the original source-line IDs, customer/product references, quantities, prices, timestamps, and flags. The verification sink validates enrichment and counts results. Staging release transactions are rolled back after verification. Durable warehouse loading follows in step 11. The configured arrival rate is a pacing ceiling, and shedding counts depend on observed buffer saturation.
+
+## Step 11 complete warehouse verification
+
+The authenticated full MySQL run completed in 94.375 seconds with 397,884 facts, 5,167,812 units, and stored revenue 8,911,407.904000. It enriched 278,740 online and 116,661 remaining periodic rows and visited all 48 hourly groups. The first 2,483 periodic facts were already committed by the earlier small run. This run inserted 89,033 online and 116,661 periodic facts and verified 189,707 existing online facts. Existing facts plus new facts reconcile exactly with the final warehouse count.
+
+The run shed 793 new rows and replayed/acknowledged 2,483 rows. Replay can include durable backlog from earlier attempts, so these counters need not match within a resumed run. Final shed rows, stream buffer, H transactions, queue chunks, and prepared periodic results were all zero.
+
+The initial live subset loaded 2,583 facts, 32,492 units, and revenue 63,009.850000 in 3.028 seconds. Its rerun inserted zero facts and preserved those totals. All 32 regression tests passed. A separate complete disk-backed fixture run finished in 87.272 seconds and independently compared every fact and dimension attribute against the assigned source, including all source IDs, modes, quantities, decimal revenue, calendar attributes, and 48 release intervals. The live full run confirms the expected aggregate totals; its every-line comparison was performed in the disposable fixture.
+
+Online results load directly after dimension resolution. Periodic results persist in bounded batches to `periodic_join_results`, then publish to facts with staging release flags in one hourly transaction. The additive SQL script creates this working table without recreating the existing warehouse. Operator commands and OLAP analyses remain pending.

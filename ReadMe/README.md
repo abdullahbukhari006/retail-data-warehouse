@@ -169,15 +169,129 @@ The core implementation is in `retail_dw/meshjoin.py`.
 - `processing_mode` records the original ingestion path. Online input defaults to `Live`, and periodic input defaults to `Periodic`. An existing supplied value is preserved by MESHJOIN.
 - The output callback must complete synchronously and commit atomically or be safe to retry. A failed output handoff retains the chunk and retries before the next scan/admission. A disk-read or invalid-input failure stops the join with retained state so a partial scan cannot lead to premature eviction. Missing master matches raise an error after full coverage.
 
-The check driver fills and drains the stream to exercise the algorithm. Independent producer/worker threads, runtime commands, priority and shedding, and DW loading are later stages.
+The check driver fills and drains the stream to exercise the algorithm. Use `check-threads` below to exercise the independent workers, priority, shedding, and recovery. Use `run` for durable warehouse loading. Interactive runtime commands follow in step 12.
 
-## Run MESHJOIN regression checks
+## Verify the three independent threads
+
+Run this short verification after loading the masters and periodic staging.
+
+```powershell
+& .\.venv\Scripts\python.exe .\Mesh-Join\main.py check-threads --limit 100 --hours 2 --seconds-per-hour 2
+```
+
+Enter your MySQL credentials and accept the default online-file path, or provide a matching file using `--online-file PATH`. The file must correspond to `assigned_sales.csv` in `--output-dir`, so each repeated online line receives its original source ID.
+
+For the supplied data, the short check submits and enriches 100 online and 4,966 periodic transactions across two release groups. It uses 10 online transactions/second by default and a two-second simulated hour as explicitly selected above. The authenticated MySQL run completed in 11.146 seconds and drained the Stream buffer, H, and Queue to zero.
+
+- `OnlineThread` reads the online CSV independently and paces arrivals at the selected peak/non-peak rate. Defaults are 80/10 transactions per second. CLI rate overrides are available, and `RunControl.set_speed()` supports runtime switching for the later command interface.
+- `PeriodicThread` owns a database connection and reads a whole unreleased hourly group using an ordered locking query. Group 0 can start immediately. Later extraction starts are separated by at least one simulated hour. A full buffer applies cancellable backpressure. The next group follows after its interval and successful completion of the current group.
+- `MeshJoinThread` owns its master-page connection and a dedicated shed-table connection. It creates both disk-page readers in that thread and processes chunks continuously. Incoming producers continue running during page reads and join iterations.
+- A periodic group is acknowledged only when its complete set of rows has passed the output callback. The `run` command commits periodic facts and release flags atomically. During `check-threads`, flag updates are rolled back after each verified group.
+- Worker failures signal the coordinator, cancel the producers, roll back an incomplete periodic release, and close worker-owned connections. Ctrl+C stops further arrivals and drains accepted work through the verification sink before shutdown.
+
+The verification sink validates enrichment and counts results. Warehouse persistence, hourly fact loading, and runtime commands follow in their planned stages. `--hours` selects 1–48 release groups, and `--limit` caps online rows for this command. The default simulated hour remains 60 seconds.
+
+## Verify priority, load shedding, and recovery
+
+Use the following high-arrival-rate stress check with your MySQL credentials.
+
+```powershell
+& .\.venv\Scripts\python.exe .\Mesh-Join\main.py check-threads --limit 10000 --hours 1 --arrival-mode peak --peak-rate 1000000
+```
+
+The default peak/non-peak rates are 80/10. This check explicitly overrides the configured peak rate to 1,000,000 transactions/second, creating arrival pressure for the verification run. The default simulated hour is 60 seconds, and this command selects group 0 immediately. Rates are pacing ceilings, and the actual throughput also depends on file reading, join processing, and buffer capacity.
+
+The priority buffer holds at most 1,000 transactions and selects waiting online rows first, fresh periodic rows second, and replayed shed rows last. It preserves arrival order within each priority. Priority applies at chunk admission, and admitted chunks retain their full master-scan coverage.
+
+MESHJOIN checks pressure immediately before chunk admission, after disk reads. When peak mode is active, H has active work, and the stream buffer is full, it persists up to 500 waiting fresh periodic rows to `shed_table` before freeing their buffer slots. Persistence includes all transaction fields, original mode flags, source identity, and the database-generated shedding timestamp. The schema and store validation restrict shedding to periodic transactions. A failed disk write retains the buffered rows.
+
+During non-peak operation, available buffer slots admit replay rows at the lowest priority. Rows stay on disk while queued or joining. Their IDs prevent duplicate replay while in flight. The store deletes acknowledged rows only after the output callback succeeds. The current verification callback validates enrichment and counts outputs; the durable warehouse callback is the next implementation stage.
+
+For a finite peak verification, the coordinator automatically switches to non-peak after the selected online input completes and an eligible shed backlog exists. It then drains that backlog before finishing. The output records this automatic transition. Manual runtime mode commands follow in step 12.
+
+`PeriodicThread` recognizes existing shed rows by source ID and checks their original fields against staging. Those rows are included in the group's acknowledgement set and replayed once during the group's scheduled release. Rows for later groups retain their disk ownership until those groups are released. Counters distinguish rows moved to disk during this run, replay admissions, acknowledged disk rows, total disk backlog, and backlog eligible for the selected hours.
+
+The authenticated stress run processed 10,000 online and 2,483 periodic rows in 1.249 seconds. It shed 1,785 periodic rows, replayed and acknowledged all 1,785 in non-peak mode, and finished with zero disk backlog and empty join components. Shed volume depends on the observed saturation during each run. Source-line identities and flags are preserved through persistence and replay.
+
+To exercise the full input with the original peak rate and hour scale, use the following. Online pacing alone requires about 58 minutes, with additional processing time depending on the machine.
+
+```powershell
+& .\.venv\Scripts\python.exe .\Mesh-Join\main.py check-threads --limit 278740 --hours 48 --arrival-mode peak
+```
+
+## Load the warehouse
+
+After preparing the input files and loading both masters and periodic staging, start the three-thread warehouse loader.
+
+```powershell
+& .\.venv\Scripts\python.exe .\Mesh-Join\main.py run --arrival-mode peak
+```
+
+Enter the database credentials and online-file path. `run` reads all online rows by default and processes 48 periodic groups. The default hour is 60 seconds and peak rate is 80 transactions/second. Online pacing requires about 58 minutes for the full input, with additional processing time depending on the machine. `--limit` and `--hours` select smaller runs.
+
+For the short loading check, use the following.
+
+```powershell
+& .\.venv\Scripts\python.exe .\Mesh-Join\main.py run --limit 100 --hours 1 --arrival-mode peak --seconds-per-hour 2
+```
+
+That authenticated run loaded 100 online and 2,483 periodic facts. Independent source calculations matched 2,583 total facts, quantity 32,492, and revenue 63,009.850000 GBP. Repeating the command inserted zero facts, verified the 100 existing online facts, and skipped the already-released periodic group. The quantity and revenue totals matched the first run.
+
+An accelerated full loading command is available for demonstration.
+
+```powershell
+& .\.venv\Scripts\python.exe .\Mesh-Join\main.py run --arrival-mode peak --peak-rate 1000000 --seconds-per-hour 1
+```
+
+The selected rates and time scale print at startup. Expected complete-dataset totals are 397,884 facts, quantity 5,167,812, and revenue 8,911,407.904000 GBP. The finite loader switches to non-peak after online input completes when shed rows need recovery.
+
+### Consolidation and transaction boundaries
+
+`retail_dw/warehouse.py` consolidates only results that have finished both master joins. It verifies the master IDs and invoice channel, computes revenue using decimal arithmetic, assigns the store from the prescribed invoice rule outside MESHJOIN, and derives all time attributes from the original event timestamp. Each original source line produces one fact. Equal invoice/product lines retain their separate source IDs.
+
+Each joined chunk inserts missing customer, product, supplier, store, and time dimension rows before creating facts or prepared results. Unique business IDs resolve surrogate keys. Existing attributes and source facts are compared against the new values, so a conflicting retry fails instead of overwriting history. Identical retries reuse their existing records. Dimension lookups are bounded to the current chunk.
+
+Online results commit to `fact_sales` as their chunks complete. Completed periodic results commit to the working table `periodic_join_results`, with dimension keys, stored revenue, original flags, and release hour. Once the entire released group has joined, PeriodicThread publishes that hourly batch to `fact_sales`, deletes its working results, and marks its staging rows released in one transaction. The next extraction interval starts after retrieval of the preceding group, with acknowledgement/loading delays allowed to extend the interval. The working table contains individual prepared lines and is emptied by successful hourly publication.
+
+The working table is included in the updated `Create-DW/create_dw.sql`. Existing installations receive it automatically when `run` starts, using the additive `Create-DW/add_periodic_join_results.sql` migration. This adds one ETL working table to the ten base tables. `check-db` verifies the original ten required tables.
+
+Warehouse writes use READ COMMITTED transactions on worker-owned connections. Selected duplicate-key and lock/deadlock errors retry the complete chunk up to three times. Failed chunks roll back their dimension and output changes. A failed hourly publication rolls back facts, prepared-result cleanup, and release flags together. Completed working results survive an interruption and can be reused when the input is replayed.
+
+Ctrl+C stops new arrivals and drains accepted join work. Periodic results belonging to an incomplete group stay in the working table with staging unreleased. Repeating `run` reuses matching prepared results/facts and completes the group. The final summary distinguishes newly inserted facts from existing ones and shows pending periodic results.
+
+The baseline loading mode inserts online results directly into the warehouse. The optional online cache will be implemented after the required analyses and report are complete.
+
+### Verify the database
+
+Run these queries in Workbench after loading.
+
+```sql
+SELECT sales_mode, COUNT(*) AS fact_rows,
+       SUM(quantity) AS quantity, SUM(revenue) AS revenue
+FROM fact_sales
+GROUP BY sales_mode;
+
+SELECT COUNT(*) AS facts, COUNT(DISTINCT source_line_id) AS unique_source_lines,
+       SUM(quantity) AS quantity, SUM(revenue) AS revenue
+FROM fact_sales;
+
+SELECT COUNT(*) AS prepared_periodic_rows FROM periodic_join_results;
+SELECT COUNT(*) AS shed_rows FROM shed_table;
+SELECT release_hour, COUNT(*) AS transactions, SUM(released) AS released_rows
+FROM periodic_sales_data GROUP BY release_hour ORDER BY release_hour;
+```
+
+A complete run has 278,740 Online and 119,144 Periodic facts, equal fact/source-ID counts, zero prepared/shed rows, and every periodic staging row released. Reports and OLAP queries use the stored `revenue` column.
+
+## Run regression checks
 
 ```powershell
 & .\.venv\Scripts\python.exe -m unittest discover -s .\Mesh-Join\tests -v
 ```
 
-These tests create disposable disk-backed SQLite fixtures and adapt the cursor parameter syntax to exercise the same page reader and join. They require no MySQL credentials. They cover unequal scan lengths, partial last pages and chunks, repeated join keys, shared queue/hash references, buffer capacity, missing matches, output retries, and partial read failure handling. A full 397,884-row verification using disk-backed fixture masters also passed during development. Authenticated MySQL check results are recorded in the requirements checklist as they are confirmed.
+These tests create disposable disk-backed SQLite fixtures and adapt cursor syntax to exercise the page reader, join, worker coordination, and warehouse loader. They require no MySQL credentials. The 32 tests cover unequal scans, partial pages/chunks, repeated keys, shared references, buffer limits, join/output failures, independent arrivals, hourly timing, connection ownership, rate changes, cancellation, priority, shedding/replay/restart, decimal calculations, calendar boundaries, fact identity, atomic hourly publication, retries, and repeated warehouse runs.
+
+A full three-thread fixture run also enriched all 278,740 online and 119,144 periodic transactions across 48 groups in 47.522 seconds, using a one-second hour and a custom online rate of 1,000,000 transactions/second for accelerated verification. It checked every release interval, closed both worker connections, and confirmed all staging flags were rolled back. The authenticated two-group MySQL run used the default non-peak rate of 10 transactions/second. These results are recorded in the requirements checklist.
 
 ## Settings and help
 
@@ -185,8 +299,12 @@ These tests create disposable disk-backed SQLite fixtures and adapt the cursor p
 & .\.venv\Scripts\python.exe .\Mesh-Join\main.py --help
 ```
 
-Startup prints the arrival mode, peak rate (80 transactions/second), non-peak rate (10 transactions/second), simulated-hour length (60 seconds), and stream-buffer limit (1,000 transactions). The arguments `--peak-rate`, `--non-peak-rate`, `--seconds-per-hour`, and `--arrival-mode` configure the displayed runtime settings. Rates and hour length must be positive integers. These settings will drive processing when the worker threads are implemented.
+Startup prints the arrival mode, peak rate (80 transactions/second), non-peak rate (10 transactions/second), simulated-hour length (60 seconds), and stream-buffer limit (1,000 transactions). The arguments `--peak-rate`, `--non-peak-rate`, `--seconds-per-hour`, and `--arrival-mode` configure runtime behavior. Rates and hour length must be positive integers. These settings control online pacing and periodic release intervals.
 
-The currently available commands are `check-db`, `clean`, `generate-data`, `load-masters`, `prepare-periodic`, `load-periodic`, and `check-join`. Runtime processing commands, the three threads, DW loading, analytical queries, and the cache bonus are subsequent development stages. Their operating instructions will be added with those features.
+The currently available commands are `check-db`, `clean`, `generate-data`, `load-masters`, `prepare-periodic`, `load-periodic`, `check-join`, `check-threads`, and `run`. Operator commands, analytical queries, and the cache bonus are subsequent development stages. Their operating instructions will be added with those features.
 
 Exit status is 0 on success, 1 on connection/configuration failure, 2 for invalid command arguments, and 130 when interactive startup is cancelled.
+
+## Verified complete MySQL load
+
+The full accelerated run completed in 94.375 seconds with 397,884 facts, 5,167,812 units, and revenue 8,911,407.904000. All 48 hourly groups were visited. Previously committed facts were verified and reused. Final shed rows, stream buffer, hash transactions, queue chunks, and prepared periodic results were zero. The earlier 2,583-fact subset rerun inserted zero additional facts and preserved quantity and revenue. The complete disposable warehouse audit also matched every fact to its source and checked dimension attributes and hourly release intervals.

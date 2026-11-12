@@ -41,9 +41,12 @@ def database_connection(config):
 
 
 @contextmanager
-def database_transaction(connection):
+def database_transaction(connection, isolation_level=None):
     """Commit the whole operation, or roll it back when the operation fails."""
-    connection.start_transaction()
+    if isolation_level is None:
+        connection.start_transaction()
+    else:
+        connection.start_transaction(isolation_level=isolation_level)
     try:
         yield connection
         connection.commit()

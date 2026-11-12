@@ -17,8 +17,11 @@ def positive_integer(value):
 
 def build_parser():
     parser = argparse.ArgumentParser(description="Retail warehouse application")
-    parser.add_argument("command", choices=["check-db", "clean", "generate-data", "load-masters", "prepare-periodic", "load-periodic", "check-join"], help="Check database/join, prepare source data, or load working tables")
-    parser.add_argument("--limit", type=positive_integer, default=1000, help="Maximum transactions for check-join")
+    parser.add_argument("command", choices=["check-db", "clean", "generate-data", "load-masters", "prepare-periodic", "load-periodic", "check-join", "check-threads", "run"], help="Prepare data, verify components, or run warehouse loading")
+    parser.add_argument("--hours", type=positive_integer, default=48, help="Periodic groups for check-threads, from 1 to 48")
+    parser.add_argument("--batch", action="store_true", help="Run without operator input and exit when selected input completes")
+    parser.add_argument("--mode", choices=["online", "periodic", "both"], default="both", help="Initial interactive input mode")
+    parser.add_argument("--limit", type=positive_integer, help="Online cap for run (default all), or verification cap (default 1000)")
     project_dir = Path(__file__).resolve().parent.parent
     parser.add_argument("--source-file", type=Path, default=project_dir / "Data" / "Online Retail.xlsx", help="Original UCI workbook for the clean command")
     parser.add_argument("--output-dir", type=Path, default=project_dir / "Data", help="Directory for generated data and master CSVs")
@@ -49,6 +52,10 @@ def main(argv=None):
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
+        if args.command in ("check-threads", "run") and args.hours > 48:
+            raise ValueError("Periodic hours must be between 1 and 48.")
+        if args.mode != "both" and (args.command != "run" or args.batch):
+            raise ValueError("Use --mode with interactive run; batch and verification process both channels.")
         if args.command == "clean":
             from retail_dw.prepare_data import clean_transactions
 
@@ -126,10 +133,44 @@ def main(argv=None):
             print("Database group counts verified; all rows are unreleased.")
             return 0
         settings.print_summary()
+        if args.command in ("check-threads", "run"):
+            from retail_dw.runtime import check_threads, run_warehouse
+
+            online_file = args.online_file or Path(prompt_value("Online file", str(args.output_dir / "online_sales_stream.csv")))
+            print("Starting OnlineThread, PeriodicThread, and MeshJoinThread.", flush=True)
+            if args.command == "run":
+                result = run_warehouse(config, args.output_dir, online_file, settings, args.limit, args.hours,
+                                       interactive=not args.batch, initial_mode=args.mode)
+            else:
+                result = check_threads(config, args.output_dir, online_file, settings, args.limit or 1000, args.hours)
+            print(f"Master partitions: customer={result['customer_partitions']}, product={result['product_partitions']}")
+            print(f"Online submitted/enriched: {result['online_submitted']:,}/{result['enriched_online']:,}")
+            print(f"Periodic submitted/enriched: {result['periodic_submitted']:,}/{result['enriched_periodic']:,}")
+            print(f"Hourly groups released: {result['groups_released']}")
+            print(f"Periodic shed to disk: {result['shed_written']:,}")
+            print(f"Replayed in non-peak: {result['shed_replayed']:,}")
+            print(f"Shed rows acknowledged: {result['shed_completed']:,}")
+            print(f"Shed disk remaining: {result['shed_pending']:,} (eligible for selected hours: {result['shed_eligible_pending']:,})")
+            if result.get("automatic_recovery"):
+                print("Switched to non-peak after selected online input completed to recover shed rows.")
+            print(f"Stream buffer: {result['stream_buffer']}, Hash table H transactions: {result.get('hash_transactions', 0)}, Queue chunks: {result.get('queue_chunks', 0)}")
+            print(f"Elapsed seconds: {result['elapsed_seconds']}")
+            if args.command == "run":
+                print(f"New online facts: {result['online_inserted']:,}")
+                print(f"New periodic facts: {result['periodic_inserted']:,}")
+                print(f"Existing facts verified: {result['already_loaded']:,}")
+                summary = result["warehouse"]
+                print(f"Warehouse fact rows: {summary['facts']:,}")
+                print(f"Warehouse quantity: {summary['quantity']:,}")
+                print(f"Warehouse revenue: {summary['revenue']:,.6f}")
+                print(f"Prepared periodic results awaiting an hourly load: {summary['pending_periodic']:,}")
+            else:
+                print("Thread verification finished. Periodic release flags were rolled back after verification.")
+            return 130 if result["cancelled"] else 0
         if args.command == "check-join":
             from retail_dw.meshjoin import check_meshjoin
 
-            result = check_meshjoin(config, args.output_dir, args.limit, settings)
+            result = check_meshjoin(config, args.output_dir, args.limit or 1000, settings)
             print(f"Master Data R partitions: customer={result['customer_partitions']}, product={result['product_partitions']}")
             print("Disk buffer: up to 500 tuples per master; stream chunk: up to 500 transactions")
             print(f"MESHJOIN enriched transactions: {result['matched']:,}")
@@ -146,7 +187,7 @@ def main(argv=None):
     except MySQLError as error:
         print(f"Database connection/check failed (MySQL {error.errno}). Check server, credentials, database, and permissions.", file=sys.stderr)
         return 1
-    except (ValueError, OSError) as error:
+    except (ValueError, OSError, RuntimeError) as error:
         print(str(error), file=sys.stderr)
         return 1
     except (EOFError, KeyboardInterrupt):
