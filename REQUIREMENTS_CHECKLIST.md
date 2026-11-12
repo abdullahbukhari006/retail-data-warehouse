@@ -43,10 +43,12 @@ These are proposed interpretations, pending implementation review or instructor 
 
 ## Data preparation
 
+Step 5 verification: The `clean` entry point read the original workbook and produced 397,884 cleaned lines from 541,909 input lines, removing 144,025. An independent verifier read the workbook's raw XML and matched every retained source-line ID and all eight mapped fields to the CSV, in order, with no extra output lines. All four exclusion counts matched the raw inspection. Focused checks passed for overlapping exclusions, repeated valid lines, missing/numeric descriptions, deterministic reruns, and preserving an existing output after a failed run. The original workbook SHA-256 remained unchanged. Counts and operating instructions are recorded in `Data/data_notes.md` and `ReadMe/README.md`.
+
 | Done | Requirement | Implementation location | Acceptance evidence |
 | --- | --- | --- | --- |
-| [ ] | Read original UCI Online Retail workbook and map all eight source fields. Record citation and download date. | `prepare_data.py`, `Data/data_notes.md` | Source metadata and field mapping. |
-| [ ] | Programmatically remove cancellations, missing customers, quantity <= 0, and price <= 0. Print counts before and after. | `prepare_data.py` | Reproducible counts printed and reported. |
+| [x] | Read original UCI Online Retail workbook and map all eight source fields. Record citation and download date. | `prepare_data.py`, `Data/data_notes.md` | Source metadata, field mapping, and full-line reconciliation passed. |
+| [x] | Programmatically remove cancellations, missing customers, quantity <= 0, and price <= 0. Print counts before and after. | `prepare_data.py` | 541,909 before and 397,884 after; printed, documented, and independently verified. |
 | [ ] | Assign channel once per invoice using UTF-8 MD5 first eight hexadecimal digits modulo 10; 0–6 online, 7–9 periodic. | `prepare_data.py` | Known invoice examples and actual channel counts. |
 | [ ] | Use exactly five prescribed stores; online store 1, physical store `2 + hash % 4`. | Preparation and warehouse loader | Every invoice has one valid store. |
 | [ ] | Generate all customer attributes with exact hash suffixes, list order, and first-cleaned-country rule. | `prepare_data.py` | Repeatable attributes and complete cleaned customer coverage. |

@@ -59,4 +59,18 @@ These issue counts overlap and cannot be summed to calculate the number removed.
 
 Preparation will retain rows with positive quantity, positive unit price, a present customer ID, and a non-cancelled invoice. Invoice MD5 remainder modulo 10 assigns 0–6 to Online and 7–9 to Periodic. Online invoices use store 1. Periodic invoices use store `2 + hash % 4`. Customer demographics, product categories, and suppliers will follow the exact deterministic rules in sections 5.4.2–5.4.3 of the assignment. Periodic rows will be sorted by event time and divided into 48 release groups.
 
-Step 4 only downloaded and inspected the raw source. Cleaning before/after counts, channel counts, cleaned master counts, partition counts, and periodic group-size range will be recorded after the preparation program runs. No cleaned CSVs or database records were produced in this step.
+## Programmatic cleaning results
+
+Step 5 reads the original workbook through `python Mesh-Join/main.py clean` and writes `Data/cleaned_sales.csv` with the original Excel row number as `source_line_id`. The four required predicates are applied together. Rows with missing descriptions and exact repeated valid lines are retained. Original order is preserved for later first-country selection.
+
+| Cleaning measure | Rows |
+| --- | --- |
+| Before cleaning | 541,909 |
+| After cleaning | 397,884 |
+| Removed | 144,025 |
+| Cancellation condition | 9,288 |
+| Nonpositive quantity condition | 10,624 |
+| Nonpositive unit price condition | 2,517 |
+| Missing customer condition | 135,080 |
+
+The four condition counts overlap. The total removed is the union of those conditions. The before and after counts reconcile as 397,884 + 144,025 = 541,909. Cleaning does not load database records. Channel counts, cleaned master counts, partition counts, and periodic group-size range remain pending their preparation stages.

@@ -17,7 +17,10 @@ def positive_integer(value):
 
 def build_parser():
     parser = argparse.ArgumentParser(description="Retail warehouse application")
-    parser.add_argument("command", choices=["check-db"], help="Verify the database connection and required tables")
+    parser.add_argument("command", choices=["check-db", "clean"], help="Check database setup or clean the source workbook")
+    project_dir = Path(__file__).resolve().parent.parent
+    parser.add_argument("--source-file", type=Path, default=project_dir / "Data" / "Online Retail.xlsx", help="Original UCI workbook for the clean command")
+    parser.add_argument("--output-dir", type=Path, default=project_dir / "Data", help="Directory for cleaned_sales.csv")
     parser.add_argument("--host", help="Database host (otherwise prompted)")
     parser.add_argument("--port", type=positive_integer, help="Database port (otherwise prompted)")
     parser.add_argument("--database", help="Database name (otherwise prompted)")
@@ -44,6 +47,14 @@ def main(argv=None):
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
+        if args.command == "clean":
+            from retail_dw.prepare_data import clean_transactions
+
+            print(f"Reading source workbook: {args.source_file}", flush=True)
+            counts, output_file = clean_transactions(args.source_file, args.output_dir)
+            counts.print_summary()
+            print(f"Cleaned transactions: {output_file}")
+            return 0
         if args.port is not None and args.port > 65535:
             raise ValueError("Database port must be between 1 and 65535.")
         if args.online_file is not None and not args.online_file.is_file():
@@ -53,9 +64,12 @@ def main(argv=None):
     except ImportError:
         print("Install application dependencies with: python -m pip install -r Mesh-Join/requirements.txt", file=sys.stderr)
         return 1
-    except ValueError as error:
+    except (ValueError, OSError) as error:
         print(str(error), file=sys.stderr)
         return 1
+    except KeyboardInterrupt:
+        print("\nCleaning cancelled.", file=sys.stderr)
+        return 130
 
     try:
         settings = RuntimeSettings(
