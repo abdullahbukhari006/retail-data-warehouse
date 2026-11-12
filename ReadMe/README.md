@@ -289,7 +289,7 @@ A complete run has 278,740 Online and 119,144 Periodic facts, equal fact/source-
 & .\.venv\Scripts\python.exe -m unittest discover -s .\Mesh-Join\tests -v
 ```
 
-These tests create disposable disk-backed SQLite fixtures and adapt cursor syntax to exercise the page reader, join, worker coordination, and warehouse loader. They require no MySQL credentials. The 46 tests cover unequal scans, partial pages/chunks, repeated keys, shared references, buffer limits, join/output failures, independent arrivals, hourly timing, connection ownership, rate changes, cancellation, priority, shedding/replay/restart, decimal calculations, calendar boundaries, fact identity, atomic hourly publication, retries, and repeated warehouse runs.
+These tests create disposable disk-backed SQLite fixtures and adapt cursor syntax to exercise the page reader, join, worker coordination, and warehouse loader. They require no MySQL credentials. The 50 tests cover unequal scans, partial pages/chunks, repeated keys, shared references, buffer limits, join/output failures, independent arrivals, hourly timing, connection ownership, rate changes, cancellation, priority, shedding/replay/restart, decimal calculations, calendar boundaries, fact identity, atomic hourly publication, retries, and repeated warehouse runs.
 
 A full three-thread fixture run also enriched all 278,740 online and 119,144 periodic transactions across 48 groups in 47.522 seconds, using a one-second hour and a custom online rate of 1,000,000 transactions/second for accelerated verification. It checked every release interval, closed both worker connections, and confirmed all staging flags were rolled back. The authenticated two-group MySQL run used the default non-peak rate of 10 transactions/second. These results are recorded in the requirements checklist.
 
@@ -301,7 +301,7 @@ A full three-thread fixture run also enriched all 278,740 online and 119,144 per
 
 Startup prints the arrival mode, peak rate (80 transactions/second), non-peak rate (10 transactions/second), simulated-hour length (60 seconds), and stream-buffer limit (1,000 transactions). The arguments `--peak-rate`, `--non-peak-rate`, `--seconds-per-hour`, and `--arrival-mode` configure runtime behavior. Rates and hour length must be positive integers. These settings control online pacing and periodic release intervals.
 
-The currently available commands are `check-db`, `clean`, `generate-data`, `load-masters`, `prepare-periodic`, `load-periodic`, `check-join`, `check-threads`, `reconcile`, and `run`. Interactive operator commands are described below. Analytical queries and the cache bonus are subsequent development stages.
+The currently available commands are `check-db`, `clean`, `generate-data`, `load-masters`, `prepare-periodic`, `load-periodic`, `check-join`, `check-threads`, `reconcile`, `check-queries`, and `run`. Interactive operator commands are described below. The 20 analytical queries are available in `Queries-DW/analysis_queries.sql`. The cache bonus is a subsequent development stage.
 
 Exit status is 0 on success, 1 on connection/configuration failure, 2 for invalid command arguments, and 130 when interactive startup is cancelled.
 
@@ -373,3 +373,21 @@ For this dataset, complete expected totals are 397,884 facts, 5,167,812 units, a
 Step 13 regression checks cover a 601-line complete fixture spanning multiple database pages, repeated invoice/product lines, offsetting revenue errors with equal grand totals, missing/extra and duplicate source identities, orphan dimension references, wrong flags/calendar/master attributes, wrong release groups, pending shed rows, malformed exports, read-only access, and temporary-file cleanup. Authenticated full MySQL reconciliation passed; measured results are recorded below.
 
 The complete disposable warehouse passed the new reconciliation command against all 397,884 source lines. Online totals were 278,740 facts, 3,526,585 units, and revenue 6,075,186.073000. Periodic totals were 119,144 facts, 1,641,227 units, and revenue 2,836,221.831000. Combined totals were 5,167,812 units and revenue 8,911,407.904000. All 4,338 customer, 3,665 product, five supplier, five store, and 17,282 time dimension rows matched. Event-time coverage was 2010-12-01 08:26:00 through 2011-12-09 12:50:00. All 48 periodic groups matched the sorted source with sizes 2,482–2,483; released flags and empty shed/prepared tables passed. All 46 regression tests passed. Authenticated full MySQL reconciliation also passed. The user confirmed matching facts, quantities, and decimal revenue for both channels and the complete warehouse, all 25,295 dimension rows (4,338 customer, 3,665 product, five supplier, five store, and 17,282 time rows), source event-time coverage, all 48 group assignments and released flags, and empty durable backlogs. Step 13 is complete.
+
+## Execute and verify the 20 OLAP analyses
+
+Open `Queries-DW/analysis_queries.sql` in MySQL Workbench, select the populated schema, choose **Don't Limit** for result rows, and execute the entire script. Q1–Q20 produce separately labeled result sets. Q20 creates/replaces the required `STORE_QUARTERLY_SALES` view and reads it in store-name/year/quarter order. The script leaves fact and dimension data unchanged.
+
+For automated complete-result verification:
+
+```powershell
+python .\Mesh-Join\main.py check-queries
+```
+
+Enter your private database credentials. Keep the warehouse stopped and the source files unchanged. This uses the generated inputs under `--output-dir` (default `Data`) and compares each query with independent source-derived answers. A clean run ends with `OLAP verification: PASS (20/20)` and exit status 0. A mismatch names the question and shows bounded missing/extra result examples; SQL errors name the question and return status 1. The command also prints measured Q19 spikes for later discussion in the report. Source calculations and the product-pair query may take a while.
+
+Use `reconcile` first to verify all individual warehouse lines. `check-queries` checks analytical answers, including rankings, purchase averages, null/zero baselines, subtotal levels, and the required ordering. It creates/replaces the Q20 view, so the account needs that privilege as well as SELECT.
+
+The selected year is 2011, with partial coverage through December 9. Q6 covers July–December 2011. Q19 includes all 374 calendar days from December 1, 2010 through December 9, 2011 in each product's daily average, including zero-sales dates. Query comments specify each date range. Full definitions, tie handling, purchase grain, percentage-change conventions, the regular-view interpretation, and verification methods are in `Queries-DW/verification_notes.md`.
+
+Step 14 local verification: all 50 tests and all 20 complete-source fixture query comparisons passed. Measured row counts and Q19 examples are recorded in `Queries-DW/verification_notes.md`. Authenticated native MySQL verification is pending.

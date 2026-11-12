@@ -17,7 +17,7 @@ def positive_integer(value):
 
 def build_parser():
     parser = argparse.ArgumentParser(description="Retail warehouse application")
-    parser.add_argument("command", choices=["check-db", "clean", "generate-data", "load-masters", "prepare-periodic", "load-periodic", "check-join", "check-threads", "reconcile", "run"], help="Prepare data, verify components, or run warehouse loading")
+    parser.add_argument("command", choices=["check-db", "clean", "generate-data", "load-masters", "prepare-periodic", "load-periodic", "check-join", "check-threads", "reconcile", "check-queries", "run"], help="Prepare data, verify components, or run warehouse loading")
     parser.add_argument("--hours", type=positive_integer, default=48, help="Periodic groups for check-threads, from 1 to 48")
     parser.add_argument("--batch", action="store_true", help="Run without operator input and exit when selected input completes")
     parser.add_argument("--mode", choices=["online", "periodic", "both"], default="both", help="Initial interactive input mode")
@@ -133,6 +133,11 @@ def main(argv=None):
             print("Database group counts verified; all rows are unreleased.")
             return 0
         settings.print_summary()
+        if args.command == "check-queries":
+            from retail_dw.analysis import verify_queries
+
+            results = verify_queries(config, args.output_dir)
+            return 0 if all(not result["failures"] for result in results) else 1
         if args.command == "reconcile":
             from retail_dw.reconciliation import reconcile_warehouse
 

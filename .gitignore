@@ -20,6 +20,8 @@ credentials.local.*
 htmlcov/
 tmp/
 temp/
+Data/reconciliation_*/
+Data/olap_verification_*/
 *.log
 ~$*
 *.tmp

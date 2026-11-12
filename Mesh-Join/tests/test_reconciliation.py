@@ -29,7 +29,7 @@ class AuditConnection(WarehouseConnection):
             super().start_transaction(isolation_level)
 
 
-class ReconciliationTests(WarehouseFixture, unittest.TestCase):
+class ReconciliationFixture(WarehouseFixture):
     def setUp(self):
         super().setUp()
         self.data=self.root/'audit-data'
@@ -85,6 +85,8 @@ class ReconciliationTests(WarehouseFixture, unittest.TestCase):
             connection.execute(sql)
             connection.commit()
 
+
+class ReconciliationTests(ReconciliationFixture, unittest.TestCase):
     def test_complete_audit_passes_and_database_remains_read_only(self):
         report=self.audit()
         self.assertTrue(report.passed,report.failures)
