@@ -7,7 +7,12 @@ Source of requirements: `DWH_Project.pdf`, sections 1–16. This checklist track
 - [x] Repository uses branch `main` and remote `https://github.com/abdullahbukhari006/retail-data-warehouse.git`.
 - [x] Add a project `.gitignore` for Python environments, credentials, caches, logs, temporary files, and submission archives.
 - [x] Establish this requirements checklist.
-- [ ] Record successful verification evidence against the requirements below as development progresses.
+- [x] Record successful verification evidence against the requirements below as development progresses.
+
+### Verification record
+
+- Step 2: User confirmed two successful executions of `create_dw.sql` in MySQL Workbench and all supplied schema checks passing, including the ten tables, five fact foreign keys, and check constraints.
+- Step 3: Python entry point, runtime settings, fresh-per-caller database connections, transaction helper, dependency list, and startup instructions added. Project-local Python 3.13 environment installed with mysql-connector-python 9.7.0 and openpyxl 3.1.5. Dependency consistency, Python compilation, four CLI smoke checks, and mocked connection lifecycle, commit/rollback, password representation, and startup success/error checks passed. User verified an authenticated Python connection to MySQL 8.0.45, database retail_data_warehouse, and the presence of all 10 required project tables. Preparation and processing entry points will be added when their implementations are available.
 
 ## Decisions to resolve and document
 
@@ -28,7 +33,7 @@ These are proposed interpretations, pending implementation review or instructor 
 
 | Done | Requirement | Implementation location | Acceptance evidence |
 | --- | --- | --- | --- |
-| [ ] | Drop previous project tables and `STORE_QUARTERLY_SALES` safely before recreation. | `Create-DW/create_dw.sql` | Script runs successfully twice. |
+| [x] | Drop previous project tables and `STORE_QUARTERLY_SALES` safely before recreation. | `Create-DW/create_dw.sql` | User confirmed script runs successfully twice in Workbench. |
 | [ ] | Customer, product, supplier, store, and time dimensions with original IDs, primary keys, and fact foreign keys. | `Create-DW/create_dw.sql` | Schema inspection and valid dimension references. |
 | [ ] | One fact per transaction line with quantity, revenue, five dimension keys, invoice ID, sales mode, and processing mode. | Schema and `Mesh-Join/retail_dw/warehouse.py` | Line-level reconciliation, including repeated invoice products. |
 | [ ] | Time columns include date, hour, day, month, quarter, year, day of week, weekday/weekend, season, and half-year using brief definitions. | Schema and warehouse loader | Boundary examples for weekends, seasons, quarters, and halves. |

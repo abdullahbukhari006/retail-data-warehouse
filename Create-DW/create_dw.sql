@@ -1,3 +1,9 @@
+CREATE DATABASE IF NOT EXISTS retail_data_warehouse
+    CHARACTER SET utf8mb4
+    COLLATE utf8mb4_bin;
+
+USE retail_data_warehouse;
+
 -- Retail warehouse and required ETL working tables.
 -- Target: MySQL 8.0.16+ (enforced CHECK constraints), InnoDB, utf8mb4.
 -- Select/create the project database before running this file, for example
