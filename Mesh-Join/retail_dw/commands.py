@@ -28,7 +28,7 @@ class OperatorConsole:
         while True:
             try:
                 line = self.read("operator> ")
-            except EOFError:
+            except (EOFError, OSError):
                 self.inbox.put("quit")
                 return
             self.inbox.put(line)
