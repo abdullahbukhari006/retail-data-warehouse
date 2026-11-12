@@ -1,0 +1,35 @@
+# Python bytecode and environments
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+
+# Local credentials and environment overrides
+.env
+.env.*
+!.env.example
+credentials.json
+credentials.local.*
+
+# Tool caches, temporary files, and execution logs
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+tmp/
+temp/
+*.log
+~$*
+*.tmp
+
+# Local editor and operating-system files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Generated submission archives
+*_Project.zip
