@@ -17,7 +17,8 @@ def positive_integer(value):
 
 def build_parser():
     parser = argparse.ArgumentParser(description="Retail warehouse application")
-    parser.add_argument("command", choices=["check-db", "clean", "generate-data", "load-masters", "prepare-periodic", "load-periodic"], help="Check database, prepare source data, or load working tables")
+    parser.add_argument("command", choices=["check-db", "clean", "generate-data", "load-masters", "prepare-periodic", "load-periodic", "check-join"], help="Check database/join, prepare source data, or load working tables")
+    parser.add_argument("--limit", type=positive_integer, default=1000, help="Maximum transactions for check-join")
     project_dir = Path(__file__).resolve().parent.parent
     parser.add_argument("--source-file", type=Path, default=project_dir / "Data" / "Online Retail.xlsx", help="Original UCI workbook for the clean command")
     parser.add_argument("--output-dir", type=Path, default=project_dir / "Data", help="Directory for generated data and master CSVs")
@@ -125,6 +126,17 @@ def main(argv=None):
             print("Database group counts verified; all rows are unreleased.")
             return 0
         settings.print_summary()
+        if args.command == "check-join":
+            from retail_dw.meshjoin import check_meshjoin
+
+            result = check_meshjoin(config, args.output_dir, args.limit, settings)
+            print(f"Master Data R partitions: customer={result['customer_partitions']}, product={result['product_partitions']}")
+            print("Disk buffer: up to 500 tuples per master; stream chunk: up to 500 transactions")
+            print(f"MESHJOIN enriched transactions: {result['matched']:,}")
+            print(f"MESHJOIN iterations: {result['iterations']:,}")
+            print(f"Master pages read: customer={result['customer_pages_read']}, product={result['product_pages_read']}")
+            print(f"Stream buffer: {result['stream_buffer']}, Hash table H transactions: {result['hash_transactions']}, Queue chunks: {result['queue_chunks']}")
+            return 0
         version, database = check_database(config)
         print(f"Connected to MySQL {version}; database {database}.")
         print("All 10 required project tables are present.")

@@ -24,7 +24,7 @@ These are proposed interpretations, pending implementation review or instructor 
 | --- | --- | --- |
 | Transaction identity | Preserve each valid source line, including repeated lines. Retain invoice ID and add a stable internal line identifier. | A repeated product line survives preparation and loads exactly once. |
 | Store enrichment | Follow section 5.4 and enrich from the five-store in-memory list outside MESHJOIN. | Invoice hash reproduces the expected store. |
-| `processing_mode` | Step 7 defines it as the original ingestion path, with `Periodic` for staged rows. Online path semantics and preservation will be integrated with the runtime. | Periodic definition documented in ReadMe and prepared/staged rows verified. Runtime preservation remains pending. |
+| `processing_mode` | Original ingestion path. Staged rows use `Periodic`; core input conversion defaults online rows to `Live`. Existing supplied values remain unchanged through MESHJOIN. | Definitions documented, periodic load verified, and core transaction preservation tested. Thread/shedding preservation remains pending. |
 | View wording | Q20 explicitly requires a regular `STORE_QUARTERLY_SALES` view. Section 11 also mentions a materialized view. Seek clarification and document the chosen interpretation. | Executable Q20 and recorded resolution. |
 | Reporting dates | Select periods from actual loaded dates and name them in SQL comments. Record partial-year coverage. | Query comments match minimum/maximum loaded dates. |
 | Q1 and Q11 | Supply separately numbered answers despite their overlap. | Both sections execute. |
@@ -61,15 +61,17 @@ Step 5 verification: The `clean` entry point read the original workbook and prod
 
 ## MESHJOIN and execution — 30 marks
 
+Step 8 verification: Core MESHJOIN and the `check-join` CLI are implemented. Ten regression tests passed using disposable disk-backed masters, including unequal 3/2 partition cycles, short final pages, 1,501 staggered transactions with a final one-row chunk, multimap references, bounded buffering, missing master matches, output retry, and partial-read failure. Full CLI verification with disk-backed fixture masters populated from the actual generated CSVs enriched 397,884 transactions in 804 iterations, using 804 pages per master (1,608 bounded queries), and drained all components. After an initial MySQL 1045 authentication rejection, the user retried successfully. The authenticated MySQL check enriched 1,000 transactions in 10 iterations, read 10 pages per master with actual partition counts of 9/8, and drained Stream buffer, H, and Queue to zero. Three-thread integration, priority/shedding, and warehouse loading remain later stages.
+
 | Done | Requirement | Implementation location | Acceptance evidence |
 | --- | --- | --- | --- |
 | [ ] | Prompt for host, port, database, username, password, and online file path. Never hardcode the password. | `main.py`, `database.py` | Fresh-start demonstration and source inspection. |
 | [ ] | Print arrival mode, peak/non-peak rates, simulated-hour scale, and buffer limit at startup. | `main.py`, `settings.py` | Startup output. |
 | [ ] | Three independent threads named OnlineThread, MeshJoinThread, and PeriodicThread. | `online.py`, `meshjoin.py`, `periodic.py` | Concurrent arrival and processing demonstration. |
-| [ ] | Stream buffer limit 1,000; chunk size up to 500; disk pages up to 500. | `meshjoin.py`, settings | Observed limits and partial-final-chunk check. |
-| [ ] | Multimap H contains actual transactions; queue contains references to chunks in arrival order. | `meshjoin.py` | Repeated join-key example and queue inspection. |
-| [ ] | Read one page of each master per iteration, scan cyclically, and retain chunks for full coverage of both masters. Avoid full master dictionaries and per-transaction master queries. | `meshjoin.py` | Unequal master page counts and final-page match checks; database access review. |
-| [ ] | Enrich each transaction from both masters, preserving transactional fields and flags. | `meshjoin.py` | Expected customer/product/supplier matches. |
+| [x] | Stream buffer limit 1,000; chunk size up to 500; disk pages up to 500. | `meshjoin.py`, settings | Capacity, partial-page/chunk, and full-input checks passed. |
+| [x] | Multimap H contains actual transactions; queue contains references to chunks in arrival order. | `meshjoin.py` | Shared object identity and repeated-key/output-order checks passed. |
+| [x] | Read one page of each master per iteration, scan cyclically, and retain chunks for full coverage of both masters. Avoid full master dictionaries and per-transaction master queries. | `meshjoin.py` | Unequal cycles and final-page checks passed; full-input fixture run used only bounded page reads. Authenticated MySQL 1,000-row check also passed. |
+| [x] | Enrich each transaction from both masters, preserving transactional fields and flags. | `meshjoin.py` | Immutable source transactions, both master matches, and supplier attributes verified in core checks. Runtime integration follows later. |
 | [ ] | Default online rates 80 peak and 10 non-peak; command-line rate control and runtime changes supported. | `online.py`, settings, commands | Measured rate change and status output. |
 | [ ] | Release one periodic group each simulated hour; default 60 seconds; group 0 may release immediately. No duplicate group extraction. | `periodic.py` | Timestamped 48-group release record. |
 | [ ] | Online first, periodic second, shed replay last. Shed only cleaned periodic rows under actual overload. | `meshjoin.py` | Peak pressure evidence, persisted shed rows, and priority observation. |

@@ -141,6 +141,44 @@ FROM periodic_sales_data;
 
 The second result should be 119144, 48, and 0 immediately after loading.
 
+## Check the core MESHJOIN
+
+After loading both masters, run the following with your database credentials.
+
+```powershell
+& .\.venv\Scripts\python.exe .\Mesh-Join\main.py check-join
+```
+
+The check reads the first 1,000 assigned transactions and enriches them using the actual database master pages. It verifies the customer/product matches and prints partition counts, iteration/page counts, and final component sizes. With the supplied data, expect 1,000 enriched transactions, 10 iterations, customer/product partition counts of 9/8, and zero transactions remaining in the buffer and H or chunks in the queue.
+
+For a full join verification of this dataset, use the following.
+
+```powershell
+& .\.venv\Scripts\python.exe .\Mesh-Join\main.py check-join --limit 397884
+```
+
+Expected output is 397,884 enriched transactions in 804 iterations, reading 804 customer pages and 804 product pages. The command performs read-only verification and closes its database connection after the stream and pending chunks drain. It uses `assigned_sales.csv` from `--output-dir`, default `Data`.
+
+The core implementation is in `retail_dw/meshjoin.py`.
+
+- The Stream buffer is a thread-safe queue limited to 1,000 incoming transactions.
+- Each iteration reads one disk page from each master and admits up to 500 transactions as a chunk. Each Disk buffer contains up to 500 master tuples. Ordered primary-key scans wrap independently after each master's actual last page.
+- Hash table H is a multimap indexed by customer and product join keys. Its buckets and the Queue reference the same pending transaction objects. Repeated join keys and repeated invoice/product lines retain their distinct source-line identities.
+- The Queue stores new chunks at the front and retires the oldest from the end. Every chunk stays for `max(customer partitions, product partitions)` iterations, giving full coverage of both masters regardless of its starting scan positions. For this dataset that is 9 iterations, with at most 9 overlapping 500-line chunks in H during an iteration.
+- Completed chunks carry the original immutable transaction plus customer and product attributes, including supplier fields. Store enrichment and revenue calculation belong to the consolidation stage.
+- `processing_mode` records the original ingestion path. Online input defaults to `Live`, and periodic input defaults to `Periodic`. An existing supplied value is preserved by MESHJOIN.
+- The output callback must complete synchronously and commit atomically or be safe to retry. A failed output handoff retains the chunk and retries before the next scan/admission. A disk-read or invalid-input failure stops the join with retained state so a partial scan cannot lead to premature eviction. Missing master matches raise an error after full coverage.
+
+The check driver fills and drains the stream to exercise the algorithm. Independent producer/worker threads, runtime commands, priority and shedding, and DW loading are later stages.
+
+## Run MESHJOIN regression checks
+
+```powershell
+& .\.venv\Scripts\python.exe -m unittest discover -s .\Mesh-Join\tests -v
+```
+
+These tests create disposable disk-backed SQLite fixtures and adapt the cursor parameter syntax to exercise the same page reader and join. They require no MySQL credentials. They cover unequal scan lengths, partial last pages and chunks, repeated join keys, shared queue/hash references, buffer capacity, missing matches, output retries, and partial read failure handling. A full 397,884-row verification using disk-backed fixture masters also passed during development. Authenticated MySQL check results are recorded in the requirements checklist as they are confirmed.
+
 ## Settings and help
 
 ```powershell
@@ -149,6 +187,6 @@ The second result should be 119144, 48, and 0 immediately after loading.
 
 Startup prints the arrival mode, peak rate (80 transactions/second), non-peak rate (10 transactions/second), simulated-hour length (60 seconds), and stream-buffer limit (1,000 transactions). The arguments `--peak-rate`, `--non-peak-rate`, `--seconds-per-hour`, and `--arrival-mode` configure the displayed runtime settings. Rates and hour length must be positive integers. These settings will drive processing when the worker threads are implemented.
 
-The currently available commands are `check-db`, `clean`, `generate-data`, `load-masters`, `prepare-periodic`, and `load-periodic`. Runtime processing commands, the three threads, analytical queries, and the cache bonus are subsequent development stages. Their operating instructions will be added with those features.
+The currently available commands are `check-db`, `clean`, `generate-data`, `load-masters`, `prepare-periodic`, `load-periodic`, and `check-join`. Runtime processing commands, the three threads, DW loading, analytical queries, and the cache bonus are subsequent development stages. Their operating instructions will be added with those features.
 
 Exit status is 0 on success, 1 on connection/configuration failure, 2 for invalid command arguments, and 130 when interactive startup is cancelled.

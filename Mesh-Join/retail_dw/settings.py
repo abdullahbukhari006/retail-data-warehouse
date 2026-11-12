@@ -16,8 +16,16 @@ class RuntimeSettings:
 
     def __post_init__(self):
         for name in ("peak_rate", "non_peak_rate", "seconds_per_hour"):
-            if getattr(self, name) <= 0:
-                raise ValueError(f"{name} must be greater than zero.")
+            value = getattr(self, name)
+            if type(value) is not int or value <= 0:
+                raise ValueError(f"{name} must be a positive integer.")
+        for name, required in (
+            ("stream_buffer_limit", 1000), ("stream_chunk_size", 500),
+            ("master_page_size", 500), ("periodic_groups", 48),
+        ):
+            value = getattr(self, name)
+            if type(value) is not int or value != required:
+                raise ValueError(f"{name} must be {required} under the project settings.")
         if self.arrival_mode not in ("peak", "non-peak"):
             raise ValueError("Arrival mode must be peak or non-peak.")
 
