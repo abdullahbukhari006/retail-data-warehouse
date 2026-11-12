@@ -16,6 +16,8 @@ Source of requirements: `DWH_Project.pdf`, sections 1–16. This checklist track
 
 ## Decisions to resolve and document
 
+Step 4 verification: Downloaded and inspected `Data/Online Retail.xlsx`, 541,909 rows and eight columns, with dates from 2010-12-01 08:26 to 2011-12-09 12:50. Workbook integrity and unchanged-copy checksum passed. Source, public-mirror acquisition, partial UCI byte comparison, raw quality counts, field types, identifier conventions, citation, and download date are recorded in `Data/data_notes.md`. Cleaning remains pending. Full UCI/mirror byte equality was not established because the UCI download was interrupted after its matching prefix was verified.
+
 These are proposed interpretations, pending implementation review or instructor clarification.
 
 | Topic | Proposed treatment | Acceptance evidence |
