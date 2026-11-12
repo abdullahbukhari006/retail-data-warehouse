@@ -51,6 +51,96 @@ The original workbook remains the input to each cleaning run. The command atomic
 
 Verified counts for the downloaded workbook are 541,909 before cleaning, 397,884 after cleaning, and 144,025 removed. The detailed source and inspection record is in `Data/data_notes.md`.
 
+## Generate channels, stores, and master data
+
+After cleaning, run the following. It uses `Data/cleaned_sales.csv` by default and requires no database credentials.
+
+```powershell
+& .\.venv\Scripts\python.exe .\Mesh-Join\main.py generate-data
+```
+
+The optional arguments `--cleaned-file PATH` and `--output-dir DIRECTORY` select alternative locations. Generation stages these four files, reuses byte-identical existing files, and restores previous changed files if publication fails. Windows denied replacing existing production CSVs during verification, so regeneration with changed input may require resolving access to those destination files or selecting a fresh output directory.
+
+| File | Contents |
+| --- | --- |
+| `online_sales_stream.csv` | The seven prescribed online transaction fields, in cleaned source order. |
+| `customer_master_data.csv` | One customer per cleaned ID with all seven prescribed fields. |
+| `product_master_data.csv` | One product per cleaned ID with all five prescribed fields. |
+| `assigned_sales.csv` | Internal preparation file containing all cleaned fields plus `sales_mode` and `store_id`, preserving the original source-line ID for both channels. |
+
+The invoice MD5 assigns one channel and store to the entire shopping cart. Customer country comes from its first cleaned transaction. Equal-length longest descriptions retain the first occurrence. Customer/product attributes use the exact assignment lists and hash suffixes. The five-store lookup is in `retail_dw/rules.py` and is used outside MESHJOIN. Supplier is an attribute of the generated product master. The preparation dictionaries are built from cleaned input and released when generation ends. Runtime MESHJOIN will read its masters from database pages.
+
+The online CSV retains its required seven-column format. `assigned_sales.csv` retains source-line identity and store assignments for later periodic staging and online identity mapping. Generated master rows are ordered by ID for reproducibility.
+
+For the supplied workbook, generation produces 278,740 online transactions, 119,144 periodic transactions, 4,338 customers, and 3,665 products. The actual channel split is approximate because the hash applies per invoice.
+
+## Load the disk-backed master tables
+
+Run the following, then enter the same MySQL credentials used for `check-db`.
+
+```powershell
+& .\.venv\Scripts\python.exe .\Mesh-Join\main.py load-masters
+```
+
+The command reads the master CSVs from `--output-dir` (default `Data`). It replaces both master tables within one database transaction, using parameterized inserts in batches of 500. A failed load rolls back both replacements. It prints the loaded row counts and page counts. Perform this preparation before starting worker threads.
+
+Verify in MySQL Workbench after a successful load.
+
+```sql
+USE retail_data_warehouse;
+
+SELECT 'customer_master_data' AS master_table,
+       COUNT(*) AS row_count, CEIL(COUNT(*) / 500.0) AS partitions
+FROM customer_master_data
+UNION ALL
+SELECT 'product_master_data', COUNT(*), CEIL(COUNT(*) / 500.0)
+FROM product_master_data;
+```
+
+Expected results are 4,338 customer rows (9 pages) and 3,665 product rows (8 pages). These actual counts determine the runtime scan lengths. Warehouse dimension and fact tables are populated later by the enrichment loader.
+
+Generation and master loading share a local lock to prevent reading mixed generations. If a process is forcibly terminated and leaves `Data/.generation.lock`, confirm no preparation command is still running before removing that lock and rerunning the command.
+
+## Prepare and load periodic staging
+
+After `generate-data`, prepare the hourly groups.
+
+```powershell
+& .\.venv\Scripts\python.exe .\Mesh-Join\main.py prepare-periodic
+```
+
+This reads `assigned_sales.csv` from `--output-dir` (default `Data`), selects Periodic transactions, and sorts them by event time with original source-line ID as the tie-breaker. It writes `periodic_sales_data.csv` in that directory. The sorted transactions are split into 48 consecutive, balanced release groups. For the supplied data, hours 0–7 each contain 2,483 rows, and hours 8–47 each contain 2,482 rows. These are simulated release groups.
+
+The prepared fields match the staging table, including source-line ID, sales mode, processing mode, release hour, and released flag. `sales_mode` and `processing_mode` both start as `Periodic`. Here, processing mode records the original ingestion path and remains unchanged during future shedding/recovery. Every `released` value starts at 0.
+
+Load staging with your database credentials.
+
+```powershell
+& .\.venv\Scripts\python.exe .\Mesh-Join\main.py load-periodic
+```
+
+The loader replaces `periodic_sales_data` in one database transaction, inserts batches of up to 500, and checks all database group counts and release flags before committing. A failure rolls back the replacement. A successful load reports 119,144 rows, 48 groups, a minimum group size of 2,482, and a maximum of 2,483. This authenticated load has been verified on the user's MySQL database.
+
+Run preparation/loading before starting worker threads. Repeating `load-periodic` resets staging for a new run, including all release flags. Later runtime processing will release one group per simulated hour, using the default 60-second scale.
+
+Additional Workbench verification is available with the following queries.
+
+```sql
+SELECT release_hour, COUNT(*) AS transactions,
+       MIN(event_time) AS first_event, MAX(event_time) AS last_event,
+       SUM(released) AS released_rows
+FROM periodic_sales_data
+GROUP BY release_hour
+ORDER BY release_hour;
+
+SELECT COUNT(*) AS total_transactions,
+       COUNT(DISTINCT release_hour) AS hourly_groups,
+       SUM(released) AS released_rows
+FROM periodic_sales_data;
+```
+
+The second result should be 119144, 48, and 0 immediately after loading.
+
 ## Settings and help
 
 ```powershell
@@ -59,6 +149,6 @@ Verified counts for the downloaded workbook are 541,909 before cleaning, 397,884
 
 Startup prints the arrival mode, peak rate (80 transactions/second), non-peak rate (10 transactions/second), simulated-hour length (60 seconds), and stream-buffer limit (1,000 transactions). The arguments `--peak-rate`, `--non-peak-rate`, `--seconds-per-hour`, and `--arrival-mode` configure the displayed runtime settings. Rates and hour length must be positive integers. These settings will drive processing when the worker threads are implemented.
 
-The currently available commands are `check-db` and `clean`. Master-data generation, channel assignment, periodic grouping, processing commands, the three threads, analytical queries, and the cache bonus are subsequent development stages. Their operating instructions will be added with those features.
+The currently available commands are `check-db`, `clean`, `generate-data`, `load-masters`, `prepare-periodic`, and `load-periodic`. Runtime processing commands, the three threads, analytical queries, and the cache bonus are subsequent development stages. Their operating instructions will be added with those features.
 
 Exit status is 0 on success, 1 on connection/configuration failure, 2 for invalid command arguments, and 130 when interactive startup is cancelled.

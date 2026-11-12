@@ -17,10 +17,11 @@ def positive_integer(value):
 
 def build_parser():
     parser = argparse.ArgumentParser(description="Retail warehouse application")
-    parser.add_argument("command", choices=["check-db", "clean"], help="Check database setup or clean the source workbook")
+    parser.add_argument("command", choices=["check-db", "clean", "generate-data", "load-masters", "prepare-periodic", "load-periodic"], help="Check database, prepare source data, or load working tables")
     project_dir = Path(__file__).resolve().parent.parent
     parser.add_argument("--source-file", type=Path, default=project_dir / "Data" / "Online Retail.xlsx", help="Original UCI workbook for the clean command")
-    parser.add_argument("--output-dir", type=Path, default=project_dir / "Data", help="Directory for cleaned_sales.csv")
+    parser.add_argument("--output-dir", type=Path, default=project_dir / "Data", help="Directory for generated data and master CSVs")
+    parser.add_argument("--cleaned-file", type=Path, default=project_dir / "Data" / "cleaned_sales.csv", help="Cleaned input for generate-data")
     parser.add_argument("--host", help="Database host (otherwise prompted)")
     parser.add_argument("--port", type=positive_integer, help="Database port (otherwise prompted)")
     parser.add_argument("--database", help="Database name (otherwise prompted)")
@@ -55,6 +56,28 @@ def main(argv=None):
             counts.print_summary()
             print(f"Cleaned transactions: {output_file}")
             return 0
+        if args.command == "generate-data":
+            from retail_dw.prepare_data import generate_sales_data
+
+            counts = generate_sales_data(args.cleaned_file, args.output_dir)
+            print(f"Assigned transactions: {counts['total']:,}")
+            print(f"Online transactions: {counts['online']:,}")
+            print(f"Periodic transactions: {counts['periodic']:,}")
+            print(f"Customer master rows: {counts['customers']:,}")
+            print(f"Product master rows: {counts['products']:,}")
+            for store_id, count in counts["stores"].items():
+                print(f"Store {store_id}: {count:,} transactions")
+            print(f"Generated files: {args.output_dir.resolve()}")
+            return 0
+        if args.command == "prepare-periodic":
+            from retail_dw.periodic import prepare_periodic_data
+
+            sizes = prepare_periodic_data(args.output_dir)
+            print(f"Periodic transactions prepared: {sum(sizes):,}")
+            print(f"Hourly groups: {len(sizes)} (release hours 0-47)")
+            print(f"Smallest group: {min(sizes):,}, largest group: {max(sizes):,}")
+            print(f"Prepared file: {args.output_dir.resolve() / 'periodic_sales_data.csv'}")
+            return 0
         if args.port is not None and args.port > 65535:
             raise ValueError("Database port must be between 1 and 65535.")
         if args.online_file is not None and not args.online_file.is_file():
@@ -68,7 +91,7 @@ def main(argv=None):
         print(str(error), file=sys.stderr)
         return 1
     except KeyboardInterrupt:
-        print("\nCleaning cancelled.", file=sys.stderr)
+        print("\nOperation cancelled.", file=sys.stderr)
         return 130
 
     try:
@@ -85,6 +108,22 @@ def main(argv=None):
             user=args.user if args.user is not None else prompt_value("Username"),
             password=getpass("Password: "),
         )
+        if args.command == "load-masters":
+            from retail_dw.prepare_data import load_master_data
+
+            counts = load_master_data(config, args.output_dir)
+            for table, count in counts.items():
+                print(f"Loaded {table}: {count:,} rows ({(count + 499) // 500} pages of up to 500)")
+            return 0
+        if args.command == "load-periodic":
+            from retail_dw.periodic import load_periodic_data
+
+            sizes = load_periodic_data(config, args.output_dir)
+            print(f"Loaded periodic_sales_data: {sum(sizes):,} rows")
+            print(f"Hourly groups: {len(sizes)} (release hours 0-47)")
+            print(f"Smallest group: {min(sizes):,}, largest group: {max(sizes):,}")
+            print("Database group counts verified; all rows are unreleased.")
+            return 0
         settings.print_summary()
         version, database = check_database(config)
         print(f"Connected to MySQL {version}; database {database}.")

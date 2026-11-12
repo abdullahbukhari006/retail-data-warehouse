@@ -73,4 +73,46 @@ Step 5 reads the original workbook through `python Mesh-Join/main.py clean` and 
 | Nonpositive unit price condition | 2,517 |
 | Missing customer condition | 135,080 |
 
-The four condition counts overlap. The total removed is the union of those conditions. The before and after counts reconcile as 397,884 + 144,025 = 541,909. Cleaning does not load database records. Channel counts, cleaned master counts, partition counts, and periodic group-size range remain pending their preparation stages.
+The four condition counts overlap. The total removed is the union of those conditions. The before and after counts reconcile as 397,884 + 144,025 = 541,909. Cleaning does not load database records.
+
+## Channel, store, and master generation results
+
+Step 6 generates attributes from the cleaned source using `python Mesh-Join/main.py generate-data`. The invoice hash is `int(MD5(transaction_id.encode('utf-8')).hexdigest()[:8], 16)`. Remainders modulo 10 from 0 through 6 select Online, and 7 through 9 select Periodic. Online store ID is 1, and periodic store ID is `2 + hash % 4`.
+
+| Measure | Rows |
+| --- | --- |
+| Assigned transactions | 397,884 |
+| Online transactions | 278,740 |
+| Periodic transactions | 119,144 |
+| Distinct invoices | 18,532 |
+| Customer master | 4,338 |
+| Product master | 3,665 |
+| Store 1 — Online, Web | 278,740 |
+| Store 2 — London Bridge, London | 21,053 |
+| Store 3 — Manchester Arndale, Manchester | 37,302 |
+| Store 4 — Birmingham Bullring, Birmingham | 19,850 |
+| Store 5 — Edinburgh Princes, Edinburgh | 40,939 |
+
+All 397,884 assignments, all online rows, and every customer/product attribute were independently checked against the prescribed MD5 rules and cleaned source data. Customer attributes use the first cleaned country, and products use the longest description. Equal-length descriptions retain the first occurrence. An empty selected description becomes `UNKNOWN`. Descriptive attributes are synthetic and follow the assignment rules.
+
+The required exports are `online_sales_stream.csv`, `customer_master_data.csv`, and `product_master_data.csv`. An internal `assigned_sales.csv` preserves all cleaned columns and adds the channel/store assignments. It supplies source-line identity for later online ingestion and periodic staging without changing the required online CSV format. Every valid repeated transaction line remains present.
+
+The master CSV row counts imply 9 customer pages and 8 product pages at 500 tuples per page. The product count is higher than the brief's approximate page estimate. The user ran `python Mesh-Join/main.py load-masters` successfully with authenticated MySQL credentials. The loader reported 4,338 customer rows (9 pages) and 3,665 product rows (8 pages), committed together in one transaction. A separate Workbench COUNT query has not been reported. The 48 periodic groups and their size range belong to step 7.
+
+## Periodic staging results
+
+Step 7 sorts all 119,144 periodic lines by event time and then by original source-line ID to resolve timestamp ties. It partitions this sequence into 48 contiguous groups using quotient/remainder balancing.
+
+| Measure | Result |
+| --- | --- |
+| Periodic rows | 119,144 |
+| Release hours | 0 through 47 |
+| Groups 0–7 | 2,483 rows each |
+| Groups 8–47 | 2,482 rows each |
+| Smallest group | 2,482 rows |
+| Largest group | 2,483 rows |
+| Initial released flag | 0 on every row |
+
+The prepared file is `Data/periodic_sales_data.csv`. Every source line and its eight staging transaction fields were independently matched to the sorted assigned input, with no duplicates or extra rows. Source IDs remain original workbook row numbers. Sales mode is `Periodic`. Processing mode is also `Periodic`, identifying the original ingestion path, and will be preserved during runtime shedding/recovery.
+
+The user successfully ran the authenticated `load-periodic` command. Before committing, the loader queried the staging table and verified all group counts against the file and confirmed all rows were unreleased. It reported 119,144 rows across 48 groups with the expected minimum and maximum sizes. The hourly release thread is a later implementation stage.

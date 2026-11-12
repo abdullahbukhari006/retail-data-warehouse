@@ -24,7 +24,7 @@ These are proposed interpretations, pending implementation review or instructor 
 | --- | --- | --- |
 | Transaction identity | Preserve each valid source line, including repeated lines. Retain invoice ID and add a stable internal line identifier. | A repeated product line survives preparation and loads exactly once. |
 | Store enrichment | Follow section 5.4 and enrich from the five-store in-memory list outside MESHJOIN. | Invoice hash reproduces the expected store. |
-| `processing_mode` | Confirm its meaning and allowed values before adding it to the schema. Distinguish it from the defined sales channel. | Definition in ReadMe and preserved values through all processing paths. |
+| `processing_mode` | Step 7 defines it as the original ingestion path, with `Periodic` for staged rows. Online path semantics and preservation will be integrated with the runtime. | Periodic definition documented in ReadMe and prepared/staged rows verified. Runtime preservation remains pending. |
 | View wording | Q20 explicitly requires a regular `STORE_QUARTERLY_SALES` view. Section 11 also mentions a materialized view. Seek clarification and document the chosen interpretation. | Executable Q20 and recorded resolution. |
 | Reporting dates | Select periods from actual loaded dates and name them in SQL comments. Record partial-year coverage. | Query comments match minimum/maximum loaded dates. |
 | Q1 and Q11 | Supply separately numbered answers despite their overlap. | Both sections execute. |
@@ -43,18 +43,20 @@ These are proposed interpretations, pending implementation review or instructor 
 
 ## Data preparation
 
+Step 6 verification: Generated 278,740 Online and 119,144 Periodic lines from 397,884 cleaned rows, with 4,338 customer and 3,665 product master rows. Independently checked all assignments, 18,532 invoice channel/store pairs, every online output line, and every generated attribute. All four output SHA-256 hashes matched after a complete rerun. Focused checks covered first-country selection, longest-description ties/fallback, publication rollback, concurrent-generation exclusion, and master-load commit/rollback. The actual master CSVs passed the CLI loader using a mocked MySQL connection in 17 batches of at most 500 rows. User confirmed a successful authenticated load of both master tables, reporting 4,338 customer rows (9 pages) and 3,665 product rows (8 pages). A separate Workbench COUNT query has not been reported. Windows denied replacement of existing production CSVs during rerun, including an escalated retry. Generation now reuses byte-identical outputs, and changed-file rollback passed fixture verification.
+
 Step 5 verification: The `clean` entry point read the original workbook and produced 397,884 cleaned lines from 541,909 input lines, removing 144,025. An independent verifier read the workbook's raw XML and matched every retained source-line ID and all eight mapped fields to the CSV, in order, with no extra output lines. All four exclusion counts matched the raw inspection. Focused checks passed for overlapping exclusions, repeated valid lines, missing/numeric descriptions, deterministic reruns, and preserving an existing output after a failed run. The original workbook SHA-256 remained unchanged. Counts and operating instructions are recorded in `Data/data_notes.md` and `ReadMe/README.md`.
 
 | Done | Requirement | Implementation location | Acceptance evidence |
 | --- | --- | --- | --- |
 | [x] | Read original UCI Online Retail workbook and map all eight source fields. Record citation and download date. | `prepare_data.py`, `Data/data_notes.md` | Source metadata, field mapping, and full-line reconciliation passed. |
 | [x] | Programmatically remove cancellations, missing customers, quantity <= 0, and price <= 0. Print counts before and after. | `prepare_data.py` | 541,909 before and 397,884 after; printed, documented, and independently verified. |
-| [ ] | Assign channel once per invoice using UTF-8 MD5 first eight hexadecimal digits modulo 10; 0–6 online, 7–9 periodic. | `prepare_data.py` | Known invoice examples and actual channel counts. |
-| [ ] | Use exactly five prescribed stores; online store 1, physical store `2 + hash % 4`. | Preparation and warehouse loader | Every invoice has one valid store. |
-| [ ] | Generate all customer attributes with exact hash suffixes, list order, and first-cleaned-country rule. | `prepare_data.py` | Repeatable attributes and complete cleaned customer coverage. |
-| [ ] | Generate product category and supplier using prescribed rules; retain longest description or `UNKNOWN`. | `prepare_data.py` | Repeatable attributes and complete cleaned product coverage. |
-| [ ] | Export required online and master CSVs with specified fields and load masters to disk-backed database tables. | Preparation and `Data/` | CSV field checks and matching database counts. |
-| [ ] | Sort periodic rows by event time, divide into 48 groups, store release hour and released flag. | Preparation and staging | No omitted/duplicated rows; smallest/largest group counts recorded. |
+| [x] | Assign channel once per invoice using UTF-8 MD5 first eight hexadecimal digits modulo 10; 0–6 online, 7–9 periodic. | `prepare_data.py` | Independently verified all invoice assignments and channel counts. |
+| [x] | Use exactly five prescribed stores; online store 1, physical store `2 + hash % 4`. | Preparation and warehouse loader | Every invoice has one verified store assignment; runtime integration follows later. |
+| [x] | Generate all customer attributes with exact hash suffixes, list order, and first-cleaned-country rule. | `prepare_data.py` | All 4,338 customer rows independently verified. |
+| [x] | Generate product category and supplier using prescribed rules; retain longest description or `UNKNOWN`. | `prepare_data.py` | All 3,665 product rows independently verified. |
+| [x] | Export required online and master CSVs with specified fields and load masters to disk-backed database tables. | Preparation and `Data/` | CSV fields independently checked; user confirmed successful authenticated loading of 4,338 customer and 3,665 product rows. |
+| [x] | Sort periodic rows by event time, divide into 48 groups, store release hour and released flag. | Preparation and staging | Independently reconciled 119,144 lines. User confirmed authenticated staging load and pre-commit database group/flag checks. Smallest 2,482, largest 2,483. |
 | [ ] | Calculate actual 500-row partition counts for both masters. | Preparation | Counts printed and included in report. |
 
 ## MESHJOIN and execution — 30 marks
