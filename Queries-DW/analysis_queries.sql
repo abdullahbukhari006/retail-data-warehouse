@@ -199,14 +199,15 @@ FROM changes ORDER BY store_id, quarter;
 -- Q13
 -- All loaded dates. Group by store, supplier, then product name as requested.
 -- Distinct product IDs sharing a name contribute to that same named group.
+-- HEX groups exact UTF-8 bytes, preserving trailing spaces under PAD SPACE collations.
 SELECT st.store_id, st.store_name, s.supplier_id, s.supplier_name,
-       p.product_name, SUM(f.revenue) AS revenue
+       MIN(p.product_name) AS product_name, SUM(f.revenue) AS revenue
 FROM fact_sales f
 JOIN dim_store st ON st.store_key = f.store_key
 JOIN dim_supplier s ON s.supplier_key = f.supplier_key
 JOIN dim_product p ON p.product_key = f.product_key
-GROUP BY st.store_id, st.store_name, s.supplier_id, s.supplier_name, p.product_name
-ORDER BY st.store_id, s.supplier_id, p.product_name;
+GROUP BY st.store_id, st.store_name, s.supplier_id, s.supplier_name, HEX(p.product_name)
+ORDER BY st.store_id, s.supplier_id, HEX(MIN(p.product_name));
 
 -- Q14
 -- All loaded dates (2010-12-01 through 2011-12-09), combined by stored season.

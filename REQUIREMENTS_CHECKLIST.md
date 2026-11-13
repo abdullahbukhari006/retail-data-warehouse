@@ -102,26 +102,26 @@ All answers belong in `Queries-DW/analysis_queries.sql`, numbered Q1–Q20. Use 
 
 | Done | Query | Acceptance evidence |
 | --- | --- | --- |
-| [ ] | Q1 Monthly top five products split by weekday/weekend | Ranking groups and monthly totals checked. |
-| [ ] | Q2 Purchase amount by gender, age, city category | Aggregation reconciles with facts. |
-| [ ] | Q3 Category sales by occupation | Category/occupation totals checked. |
-| [ ] | Q4 Gender/age purchases by quarter | Quarterly totals checked. |
-| [ ] | Q5 Top five occupations per category | Ranking restarts per category. |
-| [ ] | Q6 City category/marital status over latest six loaded months | Date boundaries and monthly breakdown checked. |
-| [ ] | Q7 Average purchase by stay duration/gender | Averaging grain documented and checked. |
-| [ ] | Q8 Rank city categories A/B/C within product categories | Exactly the prescribed categories used. |
-| [ ] | Q9 Monthly category growth | Previous-period and zero-denominator handling checked. |
-| [ ] | Q10 Weekday/weekend sales by age | Totals checked for selected year. |
-| [ ] | Q11 Monthly top five products split by weekday/weekend | Separate labeled executable answer. |
-| [ ] | Q12 Quarterly store growth | Store partitions and quarter order checked. |
-| [ ] | Q13 Supplier contribution by store and product name | Required grouping hierarchy checked. |
-| [ ] | Q14 Product sales by season | Prescribed season boundaries checked. |
-| [ ] | Q15 Monthly store/supplier revenue volatility | Percentage change independently calculated. |
-| [ ] | Q16 Top five product pairs | Unordered pairs counted once per distinct invoice. |
-| [ ] | Q17 Yearly revenue using ROLLUP | Product, supplier, store, and grand totals reconcile. |
-| [ ] | Q18 Product quantity/revenue by half and full year | Half-year totals sum to full year. |
-| [ ] | Q19 Daily product revenue above twice its daily average | Daily-average convention documented; actual spikes discussed. |
-| [ ] | Q20 Create and read STORE_QUARTERLY_SALES | Store quarterly totals checked; ordering on reading SELECT. |
+| [x] | Q1 Monthly top five products split by weekday/weekend | Ranking groups and monthly totals checked. |
+| [x] | Q2 Purchase amount by gender, age, city category | Aggregation reconciles with facts. |
+| [x] | Q3 Category sales by occupation | Category/occupation totals checked. |
+| [x] | Q4 Gender/age purchases by quarter | Quarterly totals checked. |
+| [x] | Q5 Top five occupations per category | Ranking restarts per category. |
+| [x] | Q6 City category/marital status over latest six loaded months | Date boundaries and monthly breakdown checked. |
+| [x] | Q7 Average purchase by stay duration/gender | Averaging grain documented and checked. |
+| [x] | Q8 Rank city categories A/B/C within product categories | Exactly the prescribed categories used. |
+| [x] | Q9 Monthly category growth | Previous-period and zero-denominator handling checked. |
+| [x] | Q10 Weekday/weekend sales by age | Totals checked for selected year. |
+| [x] | Q11 Monthly top five products split by weekday/weekend | Separate labeled executable answer. |
+| [x] | Q12 Quarterly store growth | Store partitions and quarter order checked. |
+| [x] | Q13 Supplier contribution by store and product name | Required grouping hierarchy checked. |
+| [x] | Q14 Product sales by season | Prescribed season boundaries checked. |
+| [x] | Q15 Monthly store/supplier revenue volatility | Percentage change independently calculated. |
+| [x] | Q16 Top five product pairs | Unordered pairs counted once per distinct invoice. |
+| [x] | Q17 Yearly revenue using ROLLUP | Product, supplier, store, and grand totals reconcile. |
+| [x] | Q18 Product quantity/revenue by half and full year | Half-year totals sum to full year. |
+| [x] | Q19 Daily product revenue above twice its daily average | Daily-average convention documented; actual spikes discussed. |
+| [x] | Q20 Create and read STORE_QUARTERLY_SALES | Store quarterly totals checked; ordering on reading SELECT. |
 
 ## Bonus — outside the 100 marks
 
@@ -163,4 +163,4 @@ Regression verification includes an accurate multi-page fixture and intentional 
 
 Implemented separately numbered Q1–Q20 in `Queries-DW/analysis_queries.sql`, using stored fact revenue and stored time attributes. SQL comments and `verification_notes.md` define loaded date ranges, partial-year/month caveats, ties, cart-level purchase averages, zero-sales periods, percentage-change nulls, pair counting, ROLLUP levels, half-year totals, the 374-day daily-average convention, and the regular Q20 view interpretation. `check-queries` reconstructs independent source-derived answers and compares every returned result row; Q20 is created/replaced outside the read snapshot.
 
-All 50 regression tests passed, including all delivered queries on a realistic fixture and a hand-calculated boundary dataset. Local SQLite execution uses documented test-only MySQL dialect adapters. All twenty delivered queries passed the complete 397,884-line disposable warehouse comparison against independently source-derived answers. Q17 includes product rows, supplier/store subtotals, and the selected-2011 grand total. Q19 returned 114,713 qualifying product/date rows under the documented 374-day average convention. Native MySQL verification is pending the user output.
+All 51 regression tests passed, including all delivered queries on a realistic fixture and a hand-calculated boundary dataset. Local SQLite execution uses documented test-only MySQL dialect adapters. All twenty delivered queries passed the complete 397,884-line disposable warehouse comparison against independently source-derived answers. Q17 includes product rows, supplier/store subtotals, and the selected-2011 grand total. Q19 returned 114,713 qualifying product/date rows under the documented 374-day average convention. Authenticated MySQL 8.0.45 verification passed all twenty questions on 13 November 2026, ending with `OLAP verification: PASS (20/20)`. Every native result count matched the fixture table, including Q13 at 15,010 rows, Q19 at 114,713 rows, and Q20 at 25 rows. The first native run exposed Q13 trailing-space grouping under the schema collation; Q13 now groups HEX(product_name) and returns MIN(product_name), preserving exact stored names without changing warehouse data. A PAD SPACE regression reproduces the original 15,002 merged groups and verifies the corrected 15,010 groups. Step 14 is complete.

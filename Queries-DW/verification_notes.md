@@ -18,7 +18,7 @@ Q7 first sums each shopping cart within its gender/stay group, then averages tho
 
 Q9, Q12, and Q15 fill the selected year's month/quarter grid with zero-sales periods. January/Q1 has no in-year predecessor. Percentage change is NULL for the first period or a zero previous amount, including zero-to-positive changes. Positive-to-zero changes are -100%. Q15 uses this percentage change as the brief's definition of volatility. Ratios and averages are rounded to six decimal places after using expanded DECIMAL scale for arithmetic. MySQL's division scale rule is documented in its [arithmetic operators reference](https://dev.mysql.com/doc/refman/8.0/en/arithmetic-functions.html).
 
-Q13 groups by store, supplier, and product name. Distinct product IDs sharing a name contribute to that named sales group. Q16 deduplicates products within each cart before counting unordered product pairs, so repeated lines do not multiply pair counts. Equal pair counts are ordered by both product IDs for reproducible top-five selection.
+Q13 groups by store, supplier, and the exact UTF-8 bytes of product name, including trailing spaces. HEX provides a grouping key unaffected by PAD SPACE comparisons; MIN returns the unchanged text within each exact-name group. Distinct product IDs sharing a name contribute to that named sales group. Q16 deduplicates products within each cart before counting unordered product pairs, so repeated lines do not multiply pair counts. Equal pair counts are ordered by both product IDs for reproducible top-five selection.
 
 Q17 uses actual WITH ROLLUP and GROUPING, rolling up store/supplier/product business IDs before resolving labels. This produces product rows, supplier subtotals, store subtotals, and one selected-year grand total without redundant label subtotal levels. The masks are 0, 1, 3, and 7 respectively, following MySQL's [GROUP BY modifiers reference](https://dev.mysql.com/doc/refman/8.0/en/group-by-modifiers.html).
 
@@ -40,7 +40,7 @@ Local regression fixtures exercise every delivered query using SQLite CTE/window
 
 ## Verification status
 
-All 50 regression tests passed. All twenty delivered queries passed the complete 397,884-line disposable warehouse comparison against independently source-derived answers. Q17 includes product rows, supplier/store subtotals, and the selected-2011 grand total. Q19 returned 114,713 qualifying product/date rows under the documented 374-day average convention. Native MySQL verification is pending the user output.
+All 51 regression tests passed. All twenty delivered queries passed the complete 397,884-line disposable warehouse comparison against independently source-derived answers. Q17 includes product rows, supplier/store subtotals, and the selected-2011 grand total. Q19 returned 114,713 qualifying product/date rows under the documented 374-day average convention. Authenticated MySQL 8.0.45 verification passed all twenty questions on 13 November 2026, ending with `OLAP verification: PASS (20/20)`. Every native result count matched the fixture table, including Q13 at 15,010 rows, Q19 at 114,713 rows, and Q20 at 25 rows. The first native run exposed Q13 trailing-space grouping under the schema collation; Q13 now groups HEX(product_name) and returns MIN(product_name), preserving exact stored names without changing warehouse data. A PAD SPACE regression reproduces the original 15,002 merged groups and verifies the corrected 15,010 groups. Step 14 is complete.
 
 | Query | Complete-source fixture rows | Result |
 | --- | ---: | --- |
@@ -78,3 +78,5 @@ An independent scan of the reconciled cleaned source identifies these five quali
 | M — Manual | 2011-10-27 | 8,322.12 | 143.796604 | 57.874246 |
 
 The largest factor is 374 when all of a product's revenue occurs on one day of the common 374-day window. Other factor-374 examples have daily revenue as small as a few pounds. Relative concentration and absolute revenue therefore need separate interpretation. The required cleaning rules retain valid positive source lines and remove cancellations/nonpositive lines, so these figures describe cleaned positive sales rather than net sales after returns. A flagged date is an analytical concentration signal; it does not establish a cause or an error in that sale.
+
+MySQL trailing-space comparison semantics are documented in the [binary versus _bin collation reference](https://dev.mysql.com/doc/refman/8.0/en/charset-binary-collations.html). The regression fixture explicitly applies PAD SPACE comparison behavior so this native-only issue remains covered locally.

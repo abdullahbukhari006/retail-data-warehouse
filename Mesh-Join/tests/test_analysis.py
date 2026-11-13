@@ -132,3 +132,32 @@ class AnalysisTests(ReconciliationFixture, unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError,'Q1 execution failed'):
                 verify_queries(self.config,self.data,write=lambda line:None)
         self.assertFalse(list(self.data.glob('olap_verification_*')))
+
+    def test_q13_preserves_trailing_spaces_under_pad_space_collation(self):
+        from contextlib import closing
+        with closing(AnalysisConnection(str(self.database),self.events)) as connection:
+            connection.raw.create_collation('PAD_SPACE',lambda a,b:(a.rstrip(' ')>b.rstrip(' '))-(a.rstrip(' ')<b.rstrip(' ')))
+            connection.raw.execute("UPDATE dim_product SET product_name=CASE product_id WHEN 'P0' THEN 'CANDLE' ELSE 'CANDLE ' END WHERE product_id IN ('P0','P1')")
+            connection.raw.execute('UPDATE fact_sales SET store_key=(SELECT store_key FROM dim_store WHERE store_id=1),supplier_key=(SELECT MIN(supplier_key) FROM dim_supplier)')
+            connection.raw.commit()
+            # Apply the production PAD SPACE comparison behavior to the test expression.
+            sql=read_queries()[13][0].replace('p.product_name','(p.product_name COLLATE PAD_SPACE)')
+            cursor=connection.cursor(dictionary=True)
+            try:
+                cursor.execute(sql)
+                actual={row['product_name']:Decimal(str(row['revenue'])) for row in cursor.fetchall()}
+            finally:
+                cursor.close()
+            expected={}
+            for name,rev in connection.raw.execute("SELECT p.product_name,f.revenue FROM fact_sales f JOIN dim_product p ON p.product_key=f.product_key WHERE p.product_id IN ('P0','P1')"):
+                expected[name]=expected.get(name,Decimal(0))+Decimal(str(rev))
+            self.assertEqual(actual['CANDLE'],expected['CANDLE'])
+            self.assertEqual(actual['CANDLE '],expected['CANDLE '])
+            cursor=connection.cursor(dictionary=True)
+            try:
+                cursor.execute(sql.replace('HEX((p.product_name COLLATE PAD_SPACE))','(p.product_name COLLATE PAD_SPACE)'))
+                merged=[r for r in cursor.fetchall() if r['product_name'].rstrip(' ')=='CANDLE']
+            finally:
+                cursor.close()
+            self.assertEqual(len(merged),1)
+            self.assertEqual(Decimal(str(merged[0]['revenue'])),expected['CANDLE']+expected['CANDLE '])
