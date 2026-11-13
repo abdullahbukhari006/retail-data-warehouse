@@ -32,11 +32,14 @@ def create_warehouse_tables(connection):
     foreign_keys = ', '.join(f"FOREIGN KEY ({surrogate}) REFERENCES {table} ({surrogate})" for table,surrogate,_ in DIMENSIONS)
     connection.execute(f"CREATE TABLE fact_sales (sales_key INTEGER PRIMARY KEY AUTOINCREMENT, {definitions}, UNIQUE (source_line_id), {foreign_keys})")
     connection.execute(f"CREATE TABLE periodic_join_results ({definitions}, release_hour INTEGER NOT NULL, PRIMARY KEY (source_line_id), {foreign_keys})")
+    connection.execute(f"CREATE TABLE online_sales_cache ({definitions}, cached_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, "
+                       f"PRIMARY KEY (source_line_id), {foreign_keys}, CHECK(sales_mode='Online'), CHECK(processing_mode='Live'))")
 
 
 class WarehouseCursor(ThreadCursor):
     def execute(self, statement, parameters=()):
-        if "CREATE TABLE IF NOT EXISTS periodic_join_results" in statement:
+        if any(name in statement for name in ("CREATE TABLE IF NOT EXISTS periodic_join_results",
+                                              "CREATE TABLE IF NOT EXISTS online_sales_cache")):
             return self.cursor.execute("SELECT 1 WHERE 0")
         self.connection.begin_write(statement)
         parameters = tuple(str(value) if isinstance(value,(Decimal,date)) else value for value in parameters)

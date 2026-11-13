@@ -253,13 +253,13 @@ Each joined chunk inserts missing customer, product, supplier, store, and time d
 
 Online results commit to `fact_sales` as their chunks complete. Completed periodic results commit to the working table `periodic_join_results`, with dimension keys, stored revenue, original flags, and release hour. Once the entire released group has joined, PeriodicThread publishes that hourly batch to `fact_sales`, deletes its working results, and marks its staging rows released in one transaction. The next extraction interval starts after retrieval of the preceding group, with acknowledgement/loading delays allowed to extend the interval. The working table contains individual prepared lines and is emptied by successful hourly publication.
 
-The working table is included in the updated `Create-DW/create_dw.sql`. Existing installations receive it automatically when `run` starts, using the additive `Create-DW/add_periodic_join_results.sql` migration. This adds one ETL working table to the ten base tables. `check-db` verifies the original ten required tables.
+The working table is included in the updated `Create-DW/create_dw.sql`. Existing installations receive it automatically when `run` starts, using the additive `Create-DW/add_periodic_join_results.sql` migration. Together with `add_online_sales_cache.sql`, this adds two ETL working tables to the ten base tables. Both additive migrations run automatically at warehouse startup. `check-db` verifies the original ten required tables.
 
 Warehouse writes use READ COMMITTED transactions on worker-owned connections. Selected duplicate-key and lock/deadlock errors retry the complete chunk up to three times. Failed chunks roll back their dimension and output changes. A failed hourly publication rolls back facts, prepared-result cleanup, and release flags together. Completed working results survive an interruption and can be reused when the input is replayed.
 
 Ctrl+C stops new arrivals and drains accepted join work. Periodic results belonging to an incomplete group stay in the working table with staging unreleased. Repeating `run` reuses matching prepared results/facts and completes the group. The final summary distinguishes newly inserted facts from existing ones and shows pending periodic results.
 
-The baseline loading mode inserts online results directly into the warehouse. The optional online cache will be implemented after the required analyses and report are complete.
+The default `--loading-mode direct` inserts Online results directly. The implemented bonus is enabled with `--loading-mode cache`; its non-peak transfer and verification instructions are below.
 
 ### Verify the database
 
@@ -289,7 +289,7 @@ A complete run has 278,740 Online and 119,144 Periodic facts, equal fact/source-
 & .\.venv\Scripts\python.exe -m unittest discover -s .\Mesh-Join\tests -v
 ```
 
-These tests create disposable disk-backed SQLite fixtures and adapt cursor syntax to exercise the page reader, join, worker coordination, and warehouse loader. They require no MySQL credentials. The 51 tests cover unequal scans, partial pages/chunks, repeated keys, shared references, buffer limits, join/output failures, independent arrivals, hourly timing, connection ownership, rate changes, cancellation, priority, shedding/replay/restart, decimal calculations, calendar boundaries, fact identity, atomic hourly publication, retries, and repeated warehouse runs.
+These tests create disposable disk-backed SQLite fixtures and adapt cursor syntax to exercise the page reader, join, worker coordination, and warehouse loader. They require no MySQL credentials. The 62 tests cover unequal scans, partial pages/chunks, repeated keys, shared references, buffer limits, join/output failures, independent arrivals, hourly timing, connection ownership, rate changes, cancellation, priority, shedding/replay/restart, decimal calculations, calendar boundaries, fact identity, atomic hourly publication, retries, and repeated warehouse runs.
 
 A full three-thread fixture run also enriched all 278,740 online and 119,144 periodic transactions across 48 groups in 47.522 seconds, using a one-second hour and a custom online rate of 1,000,000 transactions/second for accelerated verification. It checked every release interval, closed both worker connections, and confirmed all staging flags were rolled back. The authenticated two-group MySQL run used the default non-peak rate of 10 transactions/second. These results are recorded in the requirements checklist.
 
@@ -301,7 +301,7 @@ A full three-thread fixture run also enriched all 278,740 online and 119,144 per
 
 Startup prints the arrival mode, peak rate (80 transactions/second), non-peak rate (10 transactions/second), simulated-hour length (60 seconds), and stream-buffer limit (1,000 transactions). The arguments `--peak-rate`, `--non-peak-rate`, `--seconds-per-hour`, and `--arrival-mode` configure runtime behavior. Rates and hour length must be positive integers. These settings control online pacing and periodic release intervals.
 
-The currently available commands are `check-db`, `clean`, `generate-data`, `load-masters`, `prepare-periodic`, `load-periodic`, `check-join`, `check-threads`, `reconcile`, `check-queries`, and `run`. Interactive operator commands are described below. The 20 analytical queries are available in `Queries-DW/analysis_queries.sql`. The cache bonus is a subsequent development stage.
+The currently available commands are `check-db`, `clean`, `generate-data`, `load-masters`, `prepare-periodic`, `load-periodic`, `check-join`, `check-threads`, `reconcile`, `check-queries`, and `run`. Interactive operator commands are described below. The 20 analytical queries are available in `Queries-DW/analysis_queries.sql`. The optional cache bonus is selected with `run --loading-mode cache`.
 
 Exit status is 0 on success, 1 on connection/configuration failure, 2 for invalid command arguments, and 130 when interactive startup is cancelled.
 
@@ -394,4 +394,48 @@ Step 14 local verification: all 51 tests and all 20 complete-source fixture quer
 
 ## Project report
 
-`Project-Report/Project_Report.docx` is the editable report and `Project-Report/Project_Report.pdf` is the matching ten-page reading/submission copy. Both include the implemented star diagram, MESHJOIN explanation, cleaning and assignment rules, measured shed/replay and reconciliation results, all twenty OLAP checks, Q19 findings, three shortcomings, reflection, and dataset attribution. The cover uses Abdullah Bukhari, 24I-2601, DS-5A, and Dr. Asif Naeem. Permanent verification evidence is recorded in `Project-Report/evidence/verification_record.md`. The report describes the verified required direct Online loading mode; the optional cache bonus is not yet implemented.
+`Project-Report/Project_Report.docx` is the editable report and `Project-Report/Project_Report.pdf` is the matching eleven-page reading/submission copy. Both include the implemented star diagram, MESHJOIN explanation, cleaning and assignment rules, measured shed/replay and reconciliation results, all twenty OLAP checks, Q19 findings, three shortcomings, reflection, and dataset attribution. The cover uses Abdullah Bukhari, 24I-2601, DS-5A, and Dr. Asif Naeem. Permanent verification evidence is recorded in `Project-Report/evidence/verification_record.md`. The report includes the verified required direct loading mode and the bonus cache extension. Refer to its bonus verification record for the scope of confirmed measurements.
+
+## Bonus Online cache and nonpeak loading
+
+The required pipeline and all twenty native MySQL analyses were completed before this extension. Choose the loading mode explicitly:
+
+```powershell
+python .\Mesh-Join\main.py run --loading-mode direct
+python .\Mesh-Join\main.py run --loading-mode cache
+```
+
+The default remains `direct`. Cache mode changes when completed Online/Live results reach facts. Both customer/product matches, decimal consolidation, and dimension resolution still happen first. Every completed Online/Live result is durably written to `online_sales_cache`, with source-line identity, the five dimension keys, invoice, quantity, stored revenue, original flags, and cache time. Periodic results never enter this cache and retain their existing hourly publication transaction through `periodic_join_results`.
+
+While speed is peak, cache rows remain on disk. During non-peak, MeshJoinThread transfers at most 500 cached rows per scheduling pass. In one transaction it locks those rows, verifies/inserts their facts, and deletes only the transferred cache rows. A failed insert, conflicting existing payload, failed deletion, or rollback preserves the cache batch. Retried transfers compare every fact field before accepting an existing identity. A matching input retry is also cached, then verified and removed without adding a second fact. Original modes and source IDs are never changed.
+
+The speed condition is held for an atomic transfer batch, so a peak command takes effect after any batch already in progress; no new batch starts after peak takes effect. The cache uses the existing join worker and its writer connection. It adds no fourth processing thread and does not replace paged MESHJOIN with a master cache.
+
+`status` reports the selected loading mode, current Online cache count, and highest observed cache count. Final output reports newly cached results, transferred rows, matching facts already present during transfer, and remaining cache rows. These counters distinguish new fact insertion from retry verification. The highest count is an observed backlog checkpoint, rather than a measurement of exact instantaneous maximum size.
+
+Interactive runs keep the operator-selected speed. Enter `non-peak` to load the cache. `quit` and Ctrl+C stop input and enter non-peak to drain accepted cached work before closing normally. In batch mode, Online completion triggers non-peak automatically when either shed or cached work remains. Cached rows from an earlier interrupted run are drained even if the new run selects direct mode; conflicting input identities fail before overwriting them. Complete reconciliation also requires this cache to be empty.
+
+### Existing installation migration
+
+Warehouse startup applies `Create-DW/add_online_sales_cache.sql` automatically alongside the periodic-results migration. Both create missing working tables without recreating facts, dimensions, masters, or staging. The full `create_dw.sql` includes the cache for a new installation, and still deletes existing project data when rerun. Use the additive migration or normal startup for an existing populated warehouse. `check-db` continues checking the original ten required base tables. A pre-bonus installation with no optional cache is treated as having no pending cached results by read-only reconciliation.
+
+### Short interactive cache demonstration
+
+```powershell
+python .\Mesh-Join\main.py run --loading-mode cache --mode online --arrival-mode peak --limit 100 --hours 1 --seconds-per-hour 2
+```
+
+Enter the credentials and online path. Use `status` until Online submitted/enriched is 100/100 and Online cache is 100. Then enter `non-peak`, `both`, wait for completion, and enter `status` and `quit`. Previously committed facts remain present. On the already populated warehouse this demonstrates caching and removing 100 matching retries, so new Online facts should be zero, transferred cache rows 100, and final facts still 397,884. Disposable tests separately verify fresh Online facts remain absent during peak and appear only after non-peak transfer, while Periodic facts publish during peak.
+
+For a full finite cache run with accelerated settings:
+
+```powershell
+python .\Mesh-Join\main.py run --batch --loading-mode cache --arrival-mode peak --peak-rate 1000000 --seconds-per-hour 1
+python .\Mesh-Join\main.py reconcile
+```
+
+The full run uses all Online input and 48 groups, reuses committed facts, and drains durable backlog in non-peak. On a newly prepared warehouse it inserts new facts; on a previously loaded warehouse it verifies matching facts. Final totals must remain 397,884 facts, 5,167,812 units, GBP 8,911,407.904000 revenue, and zero cached/prepared/shed rows. In Workbench, `SELECT COUNT(*) FROM online_sales_cache;` reads the current durable backlog.
+
+Step 16 regression verification passed 62 tests, including cache-only Online/Live admission, periodic independence, peak hold/non-peak drain, bounded transfer, retry conflicts, rollback after fact insertion, restart with cached rows, transient deadlock retry, direct/cache equality, and complete reconciliation rejecting pending cache rows. The complete-source deferred-transfer fixture also passed. A direct baseline was recorded, then all 278,740 Online/Live results were held in cache while 119,144 Periodic facts remained published. Batches of at most 500 transferred all 278,740 as new Online facts and removed their cache entries. Every one of the 397,884 final fact payloads matched the direct baseline, and complete source reconciliation passed with exact channel quantities/revenue, all dimension attributes, all 48 groups, and zero cache/prepared/shed rows. Fresh-row deferral and Periodic publication during peak were independently exercised by a three-worker interactive fixture. All 62 regression tests passed.
+
+Authenticated MySQL cache verification passed on 13 November 2026. At peak 80/second, Online was 100/100, cache held 100, and observed cache high-water was 100. Switching to non-peak 10/second transferred and removed all 100 cached retries. Existing fact checks were 100 at ingestion and 100 at transfer; new facts were zero. Final warehouse remained 397,884 facts, 5,167,812 units, GBP 8,911,407.904000, with zero Online cache, prepared Periodic, shed, stream, H, and queue counts. The one selected Periodic group was already released, so it resubmitted no rows. Elapsed 47.116 seconds includes operator interaction and is not a throughput measurement.

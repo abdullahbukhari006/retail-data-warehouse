@@ -127,11 +127,11 @@ All answers belong in `Queries-DW/analysis_queries.sql`, numbered Q1–Q20. Use 
 
 | Done | Requirement | Implementation location | Acceptance evidence |
 | --- | --- | --- | --- |
-| [ ] | Finish both channels, shedding, and all 20 questions before adding bonus. | Required-run evidence | Required acceptance checks pass first. |
-| [ ] | Cache completed online/Live join results in a database table; periodic results retain hourly DW loading. | Schema and `warehouse.py` | Cache contains only online results. |
-| [ ] | During a slow period copy cached rows to DW and delete copied rows consistently. | `warehouse.py` | Cache fills/drains; retry-safe transfer; no lost sales. |
-| [ ] | Explain selected loading mode in ReadMe. | `ReadMe/README.md` | Instructions reproduce bonus behavior. |
-| [ ] | Bonus and direct-load runs produce equivalent final facts. | End-to-end verification | Line IDs, counts, quantities, and revenue match. |
+| [x] | Finish both channels, shedding, and all 20 questions before adding bonus. | Required-run evidence | Required acceptance checks pass first. |
+| [x] | Cache completed online/Live join results in a database table; periodic results retain hourly DW loading. | Schema and `warehouse.py` | Cache contains only online results. |
+| [x] | During a slow period copy cached rows to DW and delete copied rows consistently. | `warehouse.py` | Cache fills/drains; retry-safe transfer; no lost sales. |
+| [x] | Explain selected loading mode in ReadMe. | `ReadMe/README.md` | Instructions reproduce bonus behavior. |
+| [x] | Bonus and direct-load runs produce equivalent final facts. | End-to-end verification | Line IDs, counts, quantities, and revenue match. |
 
 ## Report, instructions, and submission — 25 marks
 
@@ -172,3 +172,13 @@ Prepared Project-Report/Project_Report.docx and Project-Report/Project_Report.pd
 Measured settings and resumed-run state are distinguished from defaults and fresh-run performance. The required direct Online loading mode is described; no optional cache-bonus implementation is claimed. Permanent evidence is retained in Project-Report/evidence/verification_record.md so it survives the planned final removal of this development checklist.
 
 Both final formats were checked against the required identity and numeric evidence. The packaged renderer was unavailable on this Windows host, so Microsoft Word exported the editable report to PDF. All ten final pages were rasterized and visually reviewed, including the diagram relationships, tables, citations, and page breaks. Final evidence-link adjustment left pages 1–9 pixel-identical and page 10 was rechecked. Step 15 is complete.
+
+## Step 16 Online cache extension
+
+Added `--loading-mode direct|cache` to warehouse runs, with direct as the default. Cache mode persists completed Online/Live fact payloads and their resolved dimension keys in `online_sales_cache`; Periodic publication is unchanged. Non-peak transfer locks at most 500 rows and inserts/verifies facts and deletes their cache rows in one transaction. Speed changes serialize with an in-progress transfer batch. Cache entries survive rollback and process restart. Matching retries are verified; conflicting cache/fact payloads fail without deletion. Batch completion and graceful quit recover durable cache backlog in non-peak, including prior cached work after changing back to direct mode.
+
+The additive migration and full schema both define the cache, its identity, foreign keys, modes, and positive measures. Status/summary expose loading mode and cache progress. Reconciliation requires an empty cache, while permitting an absent optional table on older direct-mode installations. All 62 regression tests passed. The complete-source deferred-transfer fixture also passed. A direct baseline was recorded, then all 278,740 Online/Live results were held in cache while 119,144 Periodic facts remained published. Batches of at most 500 transferred all 278,740 as new Online facts and removed their cache entries. Every one of the 397,884 final fact payloads matched the direct baseline, and complete source reconciliation passed with exact channel quantities/revenue, all dimension attributes, all 48 groups, and zero cache/prepared/shed rows. Fresh-row deferral and Periodic publication during peak were independently exercised by a three-worker interactive fixture. All 62 regression tests passed.
+
+Authenticated MySQL cache verification passed on 13 November 2026. At peak 80/second, Online was 100/100, cache held 100, and observed cache high-water was 100. Switching to non-peak 10/second transferred and removed all 100 cached retries. Existing fact checks were 100 at ingestion and 100 at transfer; new facts were zero. Final warehouse remained 397,884 facts, 5,167,812 units, GBP 8,911,407.904000, with zero Online cache, prepared Periodic, shed, stream, H, and queue counts. The one selected Periodic group was already released, so it resubmitted no rows. Elapsed 47.116 seconds includes operator interaction and is not a throughput measurement.
+
+The report and evidence record now document both loading modes. The editable report and matching PDF have eleven pages, including a verified bonus section. Updated pages were rendered and visually checked; unchanged pages were confirmed pixel-identical to the previously inspected version. Step 16 is complete.

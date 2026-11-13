@@ -15,9 +15,10 @@ def check_threads(config, data_dir, online_file, settings, limit=1000, hours=48)
 
 
 def run_warehouse(config, data_dir, online_file, settings, limit=None, hours=48, interactive=False,
-                  initial_mode="both", console_factory=None):
+                  initial_mode="both", console_factory=None, loading_mode="direct"):
     result = execute_threads(config, data_dir, online_file, settings, limit, hours, warehouse=True,
-                             interactive=interactive, initial_mode=initial_mode, console_factory=console_factory)
+                             interactive=interactive, initial_mode=initial_mode, console_factory=console_factory,
+                             loading_mode=loading_mode)
     from retail_dw.warehouse import warehouse_summary
 
     result["warehouse"] = warehouse_summary(config)
@@ -25,7 +26,9 @@ def run_warehouse(config, data_dir, online_file, settings, limit=None, hours=48,
 
 
 def execute_threads(config, data_dir, online_file, settings, limit, hours, warehouse=False,
-                    interactive=False, initial_mode="both", console_factory=None):
+                    interactive=False, initial_mode="both", console_factory=None, loading_mode="direct"):
+    if loading_mode not in ("direct", "cache") or (not warehouse and loading_mode != "direct"):
+        raise ValueError("Cache loading is available only for warehouse runs.")
     data_dir = Path(data_dir).resolve()
     online_file = Path(online_file).resolve()
     if (limit is not None and limit <= 0) or not 1 <= hours <= settings.periodic_groups:
@@ -36,7 +39,9 @@ def execute_threads(config, data_dir, online_file, settings, limit, hours, wareh
     control = RunControl(settings)
     control.set_mode(initial_mode)
     control.set_stats(online_inserted=0, periodic_prepared=0, periodic_inserted=0,
-                      already_loaded=0, already_prepared=0)
+                      already_loaded=0, already_prepared=0, loading_mode=loading_mode,
+                      online_cached=0, already_cached=0, cache_transferred=0,
+                      cache_existing=0, cache_pending=0, cache_high_water=0)
     control.shedding_enabled = True
     buffer = PriorityStreamBuffer(maxsize=settings.stream_buffer_limit)
     console = None
@@ -62,7 +67,8 @@ def execute_threads(config, data_dir, online_file, settings, limit, hours, wareh
         control.add_stats(enriched_online=online_count, enriched_periodic=len(periodic_ids))
 
     join = MeshJoinThread(config, buffer, verify_output, control,
-                          on_ack=periodic.acknowledge, shedding=True, hours=hours, warehouse=warehouse)
+                          on_ack=periodic.acknowledge, shedding=True, hours=hours, warehouse=warehouse,
+                          loading_mode=loading_mode)
     started = []
     cancelled = False
     began = monotonic()
@@ -85,7 +91,7 @@ def execute_threads(config, data_dir, online_file, settings, limit, hours, wareh
                     cancelled = not join.finished.is_set()
                     break
                 if (console is None and online.finished.is_set() and control.speed() == "peak"
-                        and control.snapshot()["shed_eligible_pending"]):
+                        and (control.snapshot()["shed_eligible_pending"] or control.snapshot()["cache_pending"])):
                     control.set_speed("non-peak")
                     control.set_stats(automatic_recovery=True)
                 if online.finished.is_set() and periodic.finished.is_set():
@@ -119,6 +125,6 @@ def execute_threads(config, data_dir, online_file, settings, limit, hours, wareh
     if (result["online_submitted"] != result["enriched_online"]
             or result["periodic_submitted"] != result["enriched_periodic"]
             or result.get("hash_transactions", 0) or result.get("queue_chunks", 0)
-            or result["stream_buffer"] or result["shed_eligible_pending"]):
+            or result["stream_buffer"] or result["shed_eligible_pending"] or result["cache_pending"]):
         raise ValueError("Threaded input/output counts or final buffers did not reconcile.")
     return result

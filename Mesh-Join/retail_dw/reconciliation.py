@@ -280,6 +280,10 @@ def check_database_rows(connection, db, audit):
             cursor.close()
         if count:
             audit.fail('pending '+table,count)
+    from retail_dw.warehouse import online_cache_count
+    count = online_cache_count(connection)
+    if count:
+        audit.fail('pending online_sales_cache', count)
 
 
 def reconcile_warehouse(config, data_dir, progress=print):

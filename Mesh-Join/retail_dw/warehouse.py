@@ -122,14 +122,18 @@ def dimension_keys(cursor, table, surrogate, columns, rows):
 class WarehouseLoader:
     """One instance and connection owned by MeshJoinThread."""
 
-    def __init__(self, connection):
+    def __init__(self, connection, loading_mode="direct"):
+        if loading_mode not in ("direct", "cache"):
+            raise ValueError("Loading mode must be direct or cache.")
         self.connection = connection
+        self.loading_mode = loading_mode
 
     def ensure_schema(self):
-        migration = Path(__file__).resolve().parents[2] / "Create-DW" / "add_periodic_join_results.sql"
         cursor = self.connection.cursor()
         try:
-            cursor.execute(migration.read_text(encoding="utf-8"))
+            for filename in ("add_periodic_join_results.sql", "add_online_sales_cache.sql"):
+                migration = Path(__file__).resolve().parents[2] / "Create-DW" / filename
+                cursor.execute(migration.read_text(encoding="utf-8"))
         finally:
             cursor.close()
 
@@ -170,9 +174,25 @@ class WarehouseLoader:
                     previous = existing.get(fact[0])
                     if previous is not None and tuple(previous[name] for name in FACT_COLUMNS) != fact:
                         raise ValueError(f"Existing fact conflicts with source line {fact[0]}.")
-                online = [row for row in facts if row[0] not in existing and row[-2] == "Online"]
+                all_online = [row for row in facts if row[-2] == "Online"]
+                cached = select_rows(cursor, "online_sales_cache", FACT_COLUMNS,
+                                     {row[0] for row in all_online}, locking=True)
+                for fact in all_online:
+                    previous = cached.get(fact[0])
+                    if previous is not None and tuple(previous[name] for name in FACT_COLUMNS) != fact:
+                        raise ValueError(f"Cached fact conflicts with source line {fact[0]}.")
+                online = [row for row in all_online if row[0] not in existing]
                 periodic = [row for row in facts if row[0] not in existing and row[-2] == "Periodic"]
-                inserted = insert_checked(cursor, "fact_sales", FACT_COLUMNS, online)
+                cache_inserted = 0
+                if self.loading_mode == "cache":
+                    if any(row[-1] != "Live" for row in all_online):
+                        raise ValueError("The online cache accepts only Online/Live results.")
+                    # Even a matching retry goes through the cache in this mode.
+                    # Transfer verifies an already committed fact before removing its cache row.
+                    cache_inserted = insert_checked(cursor, "online_sales_cache", FACT_COLUMNS, all_online)
+                    inserted = 0
+                else:
+                    inserted = insert_checked(cursor, "fact_sales", FACT_COLUMNS, online)
                 periodic_original = {row[0]: original[row[0]] for row in periodic}
                 staging_columns = (
                     "source_line_id", "transaction_id", "customer_id", "product_id", "quantity",
@@ -187,7 +207,43 @@ class WarehouseLoader:
                     prepared.append((*fact, row["release_hour"]))
                 prepared_count = insert_checked(cursor, "periodic_join_results", (*FACT_COLUMNS, "release_hour"), prepared)
                 return dict(online_inserted=inserted, periodic_prepared=prepared_count,
-                            already_loaded=len(existing), already_prepared=len(prepared) - prepared_count)
+                            already_loaded=len(existing), already_prepared=len(prepared) - prepared_count,
+                            online_cached=cache_inserted,
+                            already_cached=len(all_online) - cache_inserted if self.loading_mode == "cache" else 0)
+            finally:
+                cursor.close()
+
+    def cache_count(self):
+        with database_transaction(self.connection, isolation_level="READ COMMITTED"):
+            return online_cache_count(self.connection)
+
+    def flush_online_cache(self):
+        """Called by the join worker only during a non-peak scheduling window."""
+        for attempt in range(3):
+            try:
+                return self._flush_online_cache()
+            except MySQLError as error:
+                if error.errno not in (1062, 1205, 1213) or attempt == 2:
+                    raise
+                sleep(0.05 * (attempt + 1))
+
+    def _flush_online_cache(self):
+        with database_transaction(self.connection, isolation_level="READ COMMITTED"):
+            cursor = self.connection.cursor(dictionary=True)
+            try:
+                cursor.execute(f"SELECT {', '.join(FACT_COLUMNS)} FROM online_sales_cache "
+                               "ORDER BY source_line_id LIMIT 500 FOR UPDATE")
+                rows = cursor.fetchall()
+                if any(row["sales_mode"] != "Online" or row["processing_mode"] != "Live" for row in rows):
+                    raise ValueError("The online cache contains a non-Online/Live result.")
+                facts = [tuple(row[name] for name in FACT_COLUMNS) for row in rows]
+                inserted = insert_checked(cursor, "fact_sales", FACT_COLUMNS, facts)
+                if rows:
+                    ids = tuple(row["source_line_id"] for row in rows)
+                    cursor.execute("DELETE FROM online_sales_cache WHERE source_line_id IN ("
+                                   + ", ".join(["%s"] * len(ids)) + ")", ids)
+                return dict(online_inserted=inserted, cache_transferred=len(rows),
+                            cache_existing=len(rows) - inserted)
             finally:
                 cursor.close()
 
@@ -216,6 +272,21 @@ def flush_periodic_group(connection, hour, source_ids):
         cursor.close()
 
 
+def online_cache_count(connection):
+    """An absent optional cache is empty on installations preceding the bonus migration."""
+    cursor = connection.cursor(dictionary=True)
+    try:
+        try:
+            cursor.execute("SELECT COUNT(*) AS pending FROM online_sales_cache")
+            return cursor.fetchall()[0]["pending"]
+        except MySQLError as error:
+            if error.errno != 1146:
+                raise
+            return 0
+    finally:
+        cursor.close()
+
+
 def warehouse_summary(config):
     with database_connection(config) as connection:
         cursor = connection.cursor(dictionary=True)
@@ -225,6 +296,7 @@ def warehouse_summary(config):
             result = cursor.fetchall()[0]
             cursor.execute("SELECT COUNT(*) AS pending FROM periodic_join_results")
             result["pending_periodic"] = cursor.fetchall()[0]["pending"]
+            result["pending_online_cache"] = online_cache_count(connection)
             return result
         finally:
             cursor.close()

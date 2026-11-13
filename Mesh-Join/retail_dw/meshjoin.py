@@ -285,7 +285,8 @@ class MeshJoin:
 
 
 class MeshJoinThread(WorkerThread):
-    def __init__(self, config, buffer, on_chunk, control, on_ack=None, shedding=False, hours=48, warehouse=False):
+    def __init__(self, config, buffer, on_chunk, control, on_ack=None, shedding=False, hours=48,
+                 warehouse=False, loading_mode="direct"):
         super().__init__("MeshJoinThread", control)
         self.config = config
         self.buffer = buffer
@@ -295,6 +296,7 @@ class MeshJoinThread(WorkerThread):
         self.shedding = shedding
         self.hours = hours
         self.warehouse = warehouse
+        self.loading_mode = loading_mode
 
     def work(self):
         settings = self.control.settings
@@ -304,7 +306,7 @@ class MeshJoinThread(WorkerThread):
                 from retail_dw.warehouse import WarehouseLoader
 
                 writer_connection = stack.enter_context(database_connection(self.config))
-                loader = WarehouseLoader(writer_connection)
+                loader = WarehouseLoader(writer_connection, self.loading_mode)
                 loader.ensure_schema()
             store = None
             if self.shedding:
@@ -334,6 +336,18 @@ class MeshJoinThread(WorkerThread):
                                    product_partitions=product.partition_count)
             self.control.ready.set()
             while not self.control.abort.is_set():
+                cache_pending = 0
+                if loader is not None:
+                    cache_pending = loader.cache_count()
+                    self.control.set_stats(cache_pending=cache_pending,
+                        cache_high_water=max(cache_pending, self.control.snapshot().get("cache_high_water", 0)))
+                    # A speed change waits for an in-progress atomic transfer batch.
+                    # No new batch can start after a peak command has taken effect.
+                    with self.control.rate_changed:
+                        if self.control.arrival_mode == "non-peak" and cache_pending:
+                            self.control.add_stats(**loader.flush_online_cache())
+                            cache_pending = loader.cache_count()
+                            self.control.set_stats(cache_pending=cache_pending)
                 eligible = 0
                 if store is not None:
                     if self.control.speed() == "non-peak":
@@ -349,7 +363,7 @@ class MeshJoinThread(WorkerThread):
                         customer_pages_read=customer.pages_read,
                         product_pages_read=product.pages_read,
                     )
-                elif self.control.producers_done.is_set() and not eligible:
+                elif self.control.producers_done.is_set() and not eligible and not cache_pending:
                     break
                 else:
                     self.control.abort.wait(0.02)

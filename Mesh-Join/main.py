@@ -21,6 +21,8 @@ def build_parser():
     parser.add_argument("--hours", type=positive_integer, default=48, help="Periodic groups for check-threads, from 1 to 48")
     parser.add_argument("--batch", action="store_true", help="Run without operator input and exit when selected input completes")
     parser.add_argument("--mode", choices=["online", "periodic", "both"], default="both", help="Initial interactive input mode")
+    parser.add_argument("--loading-mode", choices=["direct", "cache"], default="direct",
+                        help="Online loading for run: direct facts or bonus non-peak cache transfer")
     parser.add_argument("--limit", type=positive_integer, help="Online cap for run (default all), or verification cap (default 1000)")
     project_dir = Path(__file__).resolve().parent.parent
     parser.add_argument("--source-file", type=Path, default=project_dir / "Data" / "Online Retail.xlsx", help="Original UCI workbook for the clean command")
@@ -52,6 +54,8 @@ def main(argv=None):
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
+        if args.loading_mode != "direct" and args.command != "run":
+            raise ValueError("--loading-mode cache applies only to run.")
         if args.command in ("check-threads", "run") and args.hours > 48:
             raise ValueError("Periodic hours must be between 1 and 48.")
         if args.mode != "both" and (args.command != "run" or args.batch):
@@ -150,8 +154,10 @@ def main(argv=None):
             online_file = args.online_file or Path(prompt_value("Online file", str(args.output_dir / "online_sales_stream.csv")))
             print("Starting OnlineThread, PeriodicThread, and MeshJoinThread.", flush=True)
             if args.command == "run":
+                print(f"Warehouse loading mode: {args.loading_mode}", flush=True)
                 result = run_warehouse(config, args.output_dir, online_file, settings, args.limit, args.hours,
-                                       interactive=not args.batch, initial_mode=args.mode)
+                                       interactive=not args.batch, initial_mode=args.mode,
+                                       loading_mode=args.loading_mode)
             else:
                 result = check_threads(config, args.output_dir, online_file, settings, args.limit or 1000, args.hours)
             print(f"Master partitions: customer={result['customer_partitions']}, product={result['product_partitions']}")
@@ -163,18 +169,23 @@ def main(argv=None):
             print(f"Shed rows acknowledged: {result['shed_completed']:,}")
             print(f"Shed disk remaining: {result['shed_pending']:,} (eligible for selected hours: {result['shed_eligible_pending']:,})")
             if result.get("automatic_recovery"):
-                print("Switched to non-peak after selected online input completed to recover shed rows.")
+                print("Switched to non-peak after selected online input completed to drain durable backlogs.")
             print(f"Stream buffer: {result['stream_buffer']}, Hash table H transactions: {result.get('hash_transactions', 0)}, Queue chunks: {result.get('queue_chunks', 0)}")
             print(f"Elapsed seconds: {result['elapsed_seconds']}")
             if args.command == "run":
                 print(f"New online facts: {result['online_inserted']:,}")
                 print(f"New periodic facts: {result['periodic_inserted']:,}")
                 print(f"Existing facts verified: {result['already_loaded']:,}")
+                print(f"Online results cached: {result['online_cached']:,}")
+                print(f"Cache rows transferred: {result['cache_transferred']:,} "
+                      f"(existing facts verified: {result['cache_existing']:,})")
+                print(f"Highest observed online cache: {result['cache_high_water']:,}")
                 summary = result["warehouse"]
                 print(f"Warehouse fact rows: {summary['facts']:,}")
                 print(f"Warehouse quantity: {summary['quantity']:,}")
                 print(f"Warehouse revenue: {summary['revenue']:,.6f}")
                 print(f"Prepared periodic results awaiting an hourly load: {summary['pending_periodic']:,}")
+                print(f"Online cache remaining: {summary['pending_online_cache']:,}")
             else:
                 print("Thread verification finished. Periodic release flags were rolled back after verification.")
             return 130 if result["cancelled"] else 0

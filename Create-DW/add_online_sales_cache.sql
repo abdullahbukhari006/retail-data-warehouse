@@ -1,0 +1,26 @@
+-- Additive bonus migration. Select the populated project schema first.
+-- Completed Online/Live results only. Dimensions are resolved before caching.
+CREATE TABLE IF NOT EXISTS online_sales_cache (
+    source_line_id BIGINT UNSIGNED NOT NULL,
+    transaction_id VARCHAR(32) NOT NULL,
+    customer_key BIGINT UNSIGNED NOT NULL,
+    product_key BIGINT UNSIGNED NOT NULL,
+    supplier_key BIGINT UNSIGNED NOT NULL,
+    store_key BIGINT UNSIGNED NOT NULL,
+    time_key BIGINT UNSIGNED NOT NULL,
+    quantity INT NOT NULL,
+    revenue DECIMAL(24, 6) NOT NULL,
+    sales_mode ENUM('Online', 'Periodic') NOT NULL,
+    processing_mode VARCHAR(32) NOT NULL,
+    cached_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    PRIMARY KEY (source_line_id),
+    CONSTRAINT fk_cache_customer FOREIGN KEY (customer_key) REFERENCES dim_customer (customer_key),
+    CONSTRAINT fk_cache_product FOREIGN KEY (product_key) REFERENCES dim_product (product_key),
+    CONSTRAINT fk_cache_supplier FOREIGN KEY (supplier_key) REFERENCES dim_supplier (supplier_key),
+    CONSTRAINT fk_cache_store FOREIGN KEY (store_key) REFERENCES dim_store (store_key),
+    CONSTRAINT fk_cache_time FOREIGN KEY (time_key) REFERENCES dim_time (time_key),
+    CONSTRAINT chk_cache_quantity CHECK (quantity > 0),
+    CONSTRAINT chk_cache_revenue CHECK (revenue > 0),
+    CONSTRAINT chk_cache_mode CHECK (sales_mode = 'Online'),
+    CONSTRAINT chk_cache_processing CHECK (processing_mode = 'Live')
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;

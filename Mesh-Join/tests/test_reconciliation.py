@@ -87,6 +87,14 @@ class ReconciliationFixture(WarehouseFixture):
 
 
 class ReconciliationTests(ReconciliationFixture, unittest.TestCase):
+    def test_pending_online_cache_fails_complete_reconciliation(self):
+        from retail_dw.warehouse import FACT_COLUMNS
+        with closing(sqlite3.connect(self.database)) as connection:
+            fields=','.join(FACT_COLUMNS)
+            connection.execute(f"INSERT INTO online_sales_cache ({fields}) SELECT {fields} FROM fact_sales WHERE sales_mode='Online' LIMIT 1")
+            connection.commit()
+        self.assertEqual(self.audit().failures,{'pending online_sales_cache':1})
+
     def test_complete_audit_passes_and_database_remains_read_only(self):
         report=self.audit()
         self.assertTrue(report.passed,report.failures)
