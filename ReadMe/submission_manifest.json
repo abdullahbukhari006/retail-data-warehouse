@@ -1,0 +1,237 @@
+{
+  "student": "Abdullah Bukhari",
+  "student_id": "24I-2601",
+  "section": "DS-5A",
+  "folders": [
+    "Create-DW",
+    "Mesh-Join",
+    "Queries-DW",
+    "Project-Report",
+    "Data",
+    "ReadMe"
+  ],
+  "hash_algorithm": "SHA-256",
+  "note": "Manifest lists every other payload file; it excludes itself to avoid self-reference.",
+  "files": [
+    {
+      "path": "Create-DW/add_online_sales_cache.sql",
+      "bytes": 1544,
+      "sha256": "f12d38c7ee30b3753d2f41fe15d135d8111c0a75afdd8556f200e7c27b4d4cc3"
+    },
+    {
+      "path": "Create-DW/add_periodic_join_results.sql",
+      "bytes": 1636,
+      "sha256": "8d67700e50b895c2e6d3eea631223918c4d3c166f68e6d34906c629482243048"
+    },
+    {
+      "path": "Create-DW/create_dw.sql",
+      "bytes": 14628,
+      "sha256": "af9ff0f2029c72ccb5fd35ddafab0377e657d4953d286f502f4865a26405dc36"
+    },
+    {
+      "path": "Data/assigned_sales.csv",
+      "bytes": 42071335,
+      "sha256": "103344ee5ebc6e8c9bb3b8f75ed52484f2b13508fa4fcfe1e495ff68a9032446"
+    },
+    {
+      "path": "Data/cleaned_sales.csv",
+      "bytes": 38252071,
+      "sha256": "c027f98b01d34d8a135257d3acd2c73b808ff7563efef3c039d0e60d868877d5"
+    },
+    {
+      "path": "Data/customer_master_data.csv",
+      "bytes": 174053,
+      "sha256": "0425dbeb0df9830462c19a2d5bb6a5fc20f8683d4fc46b9bcb9c8ce16a4b18f2"
+    },
+    {
+      "path": "Data/data_notes.md",
+      "bytes": 15078,
+      "sha256": "eb0f1912b50aa114cea77ea76a909b36f3b834de1d77eb09d3f5e1ad8a65532f"
+    },
+    {
+      "path": "Data/Online Retail.xlsx",
+      "bytes": 23715344,
+      "sha256": "43465a06f2ccf7c8b5bd2892bc7defb52f97487934fe93b16ae4c3936424676d"
+    },
+    {
+      "path": "Data/online_sales_stream.csv",
+      "bytes": 15168343,
+      "sha256": "4ead08cab962068f00b97134f4e41515d004d07c6b9f0a31d65b385115bd3e31"
+    },
+    {
+      "path": "Data/periodic_sales_data.csv",
+      "bytes": 9176461,
+      "sha256": "6101c1afaf7f6493007e3f1a766b429d7d216f32ee25c828f4dadb52bef6ba79"
+    },
+    {
+      "path": "Data/product_master_data.csv",
+      "bytes": 248734,
+      "sha256": "1ae8712fdae66a7ad52475fd42131e5e32cae1febdfbe63b520556ed0766f446"
+    },
+    {
+      "path": "Mesh-Join/main.py",
+      "bytes": 13006,
+      "sha256": "ee48577a627915f0f9606f3a02b6b1b4c3626544c1116404571c598ec0d53f95"
+    },
+    {
+      "path": "Mesh-Join/requirements.txt",
+      "bytes": 48,
+      "sha256": "c1f762bb9cefc848dcce7703950f915307339437ab83fc466535ea2c7c1cef31"
+    },
+    {
+      "path": "Mesh-Join/retail_dw/__init__.py",
+      "bytes": 56,
+      "sha256": "a30d40a3304e27b185617d39cc6a729435838572fe0b15f8f295cd979ac9168d"
+    },
+    {
+      "path": "Mesh-Join/retail_dw/analysis.py",
+      "bytes": 14949,
+      "sha256": "77742d46b2ffb959fbc5458e3f38d3114819e8c89c2ee555a793a83bad89642d"
+    },
+    {
+      "path": "Mesh-Join/retail_dw/buffer.py",
+      "bytes": 1911,
+      "sha256": "0835c559e65cf45cc2580e13dfeb2e3e119b8101b6f85888dbb991519b2d2e98"
+    },
+    {
+      "path": "Mesh-Join/retail_dw/commands.py",
+      "bytes": 3765,
+      "sha256": "d4ec59a9c158b3d6f50f2136251108bc83f6d1936540bbad0f1ffc438d118e19"
+    },
+    {
+      "path": "Mesh-Join/retail_dw/database.py",
+      "bytes": 2550,
+      "sha256": "c387975bf2316b6bad469e59cafa9538b8dce1b3d6a90d4fa591b98c62e40137"
+    },
+    {
+      "path": "Mesh-Join/retail_dw/execution.py",
+      "bytes": 4330,
+      "sha256": "577aa6d12b91884916f062dd61a165ce6beb9830ea17c2abd96c92804e448c99"
+    },
+    {
+      "path": "Mesh-Join/retail_dw/meshjoin.py",
+      "bytes": 19555,
+      "sha256": "acd365d730c430704ccc3f00bb67c9bbc005a0b1fc1afd009d990b4d69aaf49c"
+    },
+    {
+      "path": "Mesh-Join/retail_dw/online.py",
+      "bytes": 3062,
+      "sha256": "717aa0960f893cc8d3b005f058ec14f7533536202e4693f4688c6a15add2fcbc"
+    },
+    {
+      "path": "Mesh-Join/retail_dw/periodic.py",
+      "bytes": 14847,
+      "sha256": "b45057ffda157ebe95fadca8a32ce967d0675381986cf5cc2e448cc53f37a40e"
+    },
+    {
+      "path": "Mesh-Join/retail_dw/prepare_data.py",
+      "bytes": 14710,
+      "sha256": "45c28eee4abde6b5be87f693af35caacf459c24ebbd3cc54dcd99126a4501acb"
+    },
+    {
+      "path": "Mesh-Join/retail_dw/reconciliation.py",
+      "bytes": 16726,
+      "sha256": "9358bb095ba43199b06cc14312402833457bdb20d980149c4311afe15052062d"
+    },
+    {
+      "path": "Mesh-Join/retail_dw/rules.py",
+      "bytes": 2033,
+      "sha256": "414ef8f60b9aaf3f9e13aa5bcd0a04ee4ee535d4ed2a72b4e8235a8ca2c05e84"
+    },
+    {
+      "path": "Mesh-Join/retail_dw/runtime.py",
+      "bytes": 6439,
+      "sha256": "1a49cc8f6a314dd2c834f42be8a183d3f0b5164871a9c186134c87c6799ddff9"
+    },
+    {
+      "path": "Mesh-Join/retail_dw/settings.py",
+      "bytes": 1534,
+      "sha256": "ace514c06c4a94ba0f8fabe97fbf7cc65803dba2df05b42d5404bdbfe89e410c"
+    },
+    {
+      "path": "Mesh-Join/retail_dw/shedding.py",
+      "bytes": 4782,
+      "sha256": "38bc80f8ffd19e47849e8aadbe2602661d95caf3f654f34775be3485f9ff82b8"
+    },
+    {
+      "path": "Mesh-Join/retail_dw/warehouse.py",
+      "bytes": 15226,
+      "sha256": "f89c34b071ef52eb7eb9f8ced64faaaab1f4e026bd5875ce5e46f4bdfb2a7544"
+    },
+    {
+      "path": "Mesh-Join/tests/test_analysis.py",
+      "bytes": 9819,
+      "sha256": "c7b0cc65a65fd7efb7856c660aad42386ac2da376ced77126192ae2197b9e4df"
+    },
+    {
+      "path": "Mesh-Join/tests/test_cache.py",
+      "bytes": 10784,
+      "sha256": "1c16e9ea3b0d1582ec160c0b1cd5546485aae970b3030eef7c6414871d91d527"
+    },
+    {
+      "path": "Mesh-Join/tests/test_commands.py",
+      "bytes": 6521,
+      "sha256": "3f5108871be47778f2cade8838dbeb23671cc8249619d5e3063f50e08b08b574"
+    },
+    {
+      "path": "Mesh-Join/tests/test_meshjoin.py",
+      "bytes": 9563,
+      "sha256": "69e14c29f1e53b9d5bf070126c3a72f0bf49b3d1359d183bfb3de9371a013014"
+    },
+    {
+      "path": "Mesh-Join/tests/test_reconciliation.py",
+      "bytes": 9339,
+      "sha256": "6f25f5e63aaf27f2c1fd3cb0d5dc6054902882b507bd9fc58be3ed172bdf2b1a"
+    },
+    {
+      "path": "Mesh-Join/tests/test_shedding.py",
+      "bytes": 7996,
+      "sha256": "93e4aea55d636dc524a94c586b660a1cdc11e38e3076432ce4f8e77028034550"
+    },
+    {
+      "path": "Mesh-Join/tests/test_threads.py",
+      "bytes": 13948,
+      "sha256": "0a6f12ae1fda04015e79a71de6178c8b285c7a026f6068c0e11d6ac6674e3aba"
+    },
+    {
+      "path": "Mesh-Join/tests/test_warehouse.py",
+      "bytes": 12056,
+      "sha256": "a5fd595282f5417e7bd939f518585bcf5ab88b14cc612b06208d217b1cd04c14"
+    },
+    {
+      "path": "Project-Report/evidence/verification_record.md",
+      "bytes": 7552,
+      "sha256": "d6ae11d39461d1457de6dacf92f8b0bdaebc00c58024988dd0c9d7323ad0c0f0"
+    },
+    {
+      "path": "Project-Report/Project_Report.docx",
+      "bytes": 191099,
+      "sha256": "db641a7e34bb3233e89efe997f414dbcdeaaf72a5c767633a6f42b7efe160df7"
+    },
+    {
+      "path": "Project-Report/Project_Report.pdf",
+      "bytes": 527316,
+      "sha256": "14ab504016a5d4436c2c11321c59936b770b6af8183f65071143f4f3865827bb"
+    },
+    {
+      "path": "Queries-DW/analysis_queries.sql",
+      "bytes": 17890,
+      "sha256": "75ece1cd73d999fa69888748811d7591a1b2a33f654c05939d205db2c76cc784"
+    },
+    {
+      "path": "Queries-DW/verification_notes.md",
+      "bytes": 9619,
+      "sha256": "c6379f03ebda52479a9a865539ae455f477cc799b711903a7f41a956e3f11843"
+    },
+    {
+      "path": "ReadMe/final_requirements_review.md",
+      "bytes": 8956,
+      "sha256": "e5545ec74babbaac6556acf6275912cdeb8852530eb8e4bb06bba5b56f75a7c1"
+    },
+    {
+      "path": "ReadMe/README.md",
+      "bytes": 20300,
+      "sha256": "103e9f2852df32328446be81dff9cafaf16e9d126d10b46e0e061e1911d5e04c"
+    }
+  ]
+}

@@ -55,9 +55,9 @@ These issue counts overlap and cannot be summed to calculate the number removed.
 - Assign a stable internal identity from the original workbook row before filtering. Preserve repeated lines individually throughout processing.
 - Convert nonmissing product descriptions to text before comparing their lengths. Retain the longest cleaned description per product and use `UNKNOWN` when none is available.
 
-## Required generation rules and pending measurements
+## Generation rules
 
-Preparation will retain rows with positive quantity, positive unit price, a present customer ID, and a non-cancelled invoice. Invoice MD5 remainder modulo 10 assigns 0–6 to Online and 7–9 to Periodic. Online invoices use store 1. Periodic invoices use store `2 + hash % 4`. Customer demographics, product categories, and suppliers will follow the exact deterministic rules in sections 5.4.2–5.4.3 of the assignment. Periodic rows will be sorted by event time and divided into 48 release groups.
+Preparation retains rows with positive quantity, positive unit price, a present customer ID, and a non-cancelled invoice. Invoice MD5 remainder modulo 10 assigns 0–6 to Online and 7–9 to Periodic. Online invoices use store 1. Periodic invoices use store `2 + hash % 4`. Customer demographics, product categories, and suppliers follow the exact deterministic rules in sections 5.4.2–5.4.3 of the assignment. Periodic rows are sorted by event time and divided into 48 release groups.
 
 ## Programmatic cleaning results
 
@@ -113,9 +113,9 @@ Step 7 sorts all 119,144 periodic lines by event time and then by original sourc
 | Largest group | 2,483 rows |
 | Initial released flag | 0 on every row |
 
-The prepared file is `Data/periodic_sales_data.csv`. Every source line and its eight staging transaction fields were independently matched to the sorted assigned input, with no duplicates or extra rows. Source IDs remain original workbook row numbers. Sales mode is `Periodic`. Processing mode is also `Periodic`, identifying the original ingestion path, and will be preserved during runtime shedding/recovery.
+The prepared file is `Data/periodic_sales_data.csv`. Every source line and its eight staging transaction fields were independently matched to the sorted assigned input, with no duplicates or extra rows. Source IDs remain original workbook row numbers. Sales mode is `Periodic`. Processing mode is also `Periodic`, identifying the original ingestion path, and is preserved during runtime shedding/recovery.
 
-The user successfully ran the authenticated `load-periodic` command. Before committing, the loader queried the staging table and verified all group counts against the file and confirmed all rows were unreleased. It reported 119,144 rows across 48 groups with the expected minimum and maximum sizes. The hourly release thread is a later implementation stage.
+The user successfully ran the authenticated `load-periodic` command. Before committing, the loader queried the staging table and verified all group counts against the file and confirmed all rows were unreleased. It reported 119,144 rows across 48 groups with the expected minimum and maximum sizes. The hourly release thread and full 48-group execution are verified in the permanent run evidence.
 
 ## Peak shedding and non-peak recovery verification
 
@@ -142,7 +142,7 @@ The run shed 793 new rows and replayed/acknowledged 2,483 rows. Replay can inclu
 
 The initial live subset loaded 2,583 facts, 32,492 units, and revenue 63,009.850000 in 3.028 seconds. Its rerun inserted zero facts and preserved those totals. All 32 regression tests passed. A separate complete disk-backed fixture run finished in 87.272 seconds and independently compared every fact and dimension attribute against the assigned source, including all source IDs, modes, quantities, decimal revenue, calendar attributes, and 48 release intervals. The live full run confirms the expected aggregate totals; its every-line comparison was performed in the disposable fixture.
 
-Online results load directly after dimension resolution. Periodic results persist in bounded batches to `periodic_join_results`, then publish to facts with staging release flags in one hourly transaction. The additive SQL script creates this working table without recreating the existing warehouse. Operator commands and OLAP analyses remain pending.
+Online results load directly after dimension resolution. Periodic results persist in bounded batches to `periodic_join_results`, then publish to facts with staging release flags in one hourly transaction. The additive SQL script creates this working table without recreating the existing warehouse. Operator commands, all twenty OLAP analyses, and the cache extension are verified in the permanent evidence record.
 
 ## Step 13 reconciliation verification
 
