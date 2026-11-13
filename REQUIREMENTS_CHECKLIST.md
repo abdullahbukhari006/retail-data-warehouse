@@ -137,9 +137,9 @@ All answers belong in `Queries-DW/analysis_queries.sql`, numbered Q1–Q20. Use 
 
 | Done | Requirement | Deliverable | Acceptance evidence |
 | --- | --- | --- | --- |
-| [ ] | Overview, actual star diagram/explanation, MESHJOIN explanation and three shortcomings. | `Project-Report/` | Document matches implementation. |
-| [ ] | Cleaning counts, channel rule, partition counts, periodic group range, peak/non-peak shed counts, Q19 spikes, and reflection. | Report and run evidence | Measured values agree with complete run. |
-| [ ] | Dataset citation and actual download date. | Report, ReadMe, data note | Required citation appears in all locations. |
+| [x] | Overview, actual star diagram/explanation, MESHJOIN explanation and three shortcomings. | `Project-Report/` | Document matches implementation. |
+| [x] | Cleaning counts, channel rule, partition counts, periodic group range, peak/non-peak shed counts, Q19 spikes, and reflection. | Report and run evidence | Measured values agree with complete run. |
+| [x] | Dataset citation and actual download date. | Report, ReadMe, data note | Required citation appears in all locations. |
 | [ ] | Database creation, data preparation, startup, all commands, queries, scale, and loading-mode instructions. | `ReadMe/README.md` | Fresh extraction works using instructions alone. |
 | [ ] | Six required folders and three required CSVs plus data note included. | Submission ZIP | Archive inventory verified. |
 | [ ] | Full-name/student-ID ZIP name; source and report prepared individually; no credentials or local paths needed to operate. | Submission ZIP | Final package review. |
@@ -164,3 +164,11 @@ Regression verification includes an accurate multi-page fixture and intentional 
 Implemented separately numbered Q1–Q20 in `Queries-DW/analysis_queries.sql`, using stored fact revenue and stored time attributes. SQL comments and `verification_notes.md` define loaded date ranges, partial-year/month caveats, ties, cart-level purchase averages, zero-sales periods, percentage-change nulls, pair counting, ROLLUP levels, half-year totals, the 374-day daily-average convention, and the regular Q20 view interpretation. `check-queries` reconstructs independent source-derived answers and compares every returned result row; Q20 is created/replaced outside the read snapshot.
 
 All 51 regression tests passed, including all delivered queries on a realistic fixture and a hand-calculated boundary dataset. Local SQLite execution uses documented test-only MySQL dialect adapters. All twenty delivered queries passed the complete 397,884-line disposable warehouse comparison against independently source-derived answers. Q17 includes product rows, supplier/store subtotals, and the selected-2011 grand total. Q19 returned 114,713 qualifying product/date rows under the documented 374-day average convention. Authenticated MySQL 8.0.45 verification passed all twenty questions on 13 November 2026, ending with `OLAP verification: PASS (20/20)`. Every native result count matched the fixture table, including Q13 at 15,010 rows, Q19 at 114,713 rows, and Q20 at 25 rows. The first native run exposed Q13 trailing-space grouping under the schema collation; Q13 now groups HEX(product_name) and returns MIN(product_name), preserving exact stored names without changing warehouse data. A PAD SPACE regression reproduces the original 15,002 merged groups and verifies the corrected 15,010 groups. Step 14 is complete.
+
+## Step 15 project report
+
+Prepared Project-Report/Project_Report.docx and Project-Report/Project_Report.pdf as matching ten-page reports for Abdullah Bukhari, 24I-2601, DS-5A, Dr. Asif Naeem, dated 13 November 2026. The report covers the overview, original dataset and overlapping cleaning counts, deterministic channels and master attributes, actual partition/group sizes, the implemented star diagram and transaction grain, MESHJOIN state and scan coverage, thread ownership, commands, durable periodic loading, peak shedding/non-peak recovery, authenticated results, all twenty query outcomes, Q19 spikes, three shortcomings, reflection, and required citation/download date.
+
+Measured settings and resumed-run state are distinguished from defaults and fresh-run performance. The required direct Online loading mode is described; no optional cache-bonus implementation is claimed. Permanent evidence is retained in Project-Report/evidence/verification_record.md so it survives the planned final removal of this development checklist.
+
+Both final formats were checked against the required identity and numeric evidence. The packaged renderer was unavailable on this Windows host, so Microsoft Word exported the editable report to PDF. All ten final pages were rasterized and visually reviewed, including the diagram relationships, tables, citations, and page breaks. Final evidence-link adjustment left pages 1–9 pixel-identical and page 10 was rechecked. Step 15 is complete.
